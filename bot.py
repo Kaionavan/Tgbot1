@@ -10,7 +10,7 @@ from telegram.ext import Application, MessageHandler, CommandHandler, filters, C
 
 # ====== НАСТРОЙКИ ======
 TELEGRAM_TOKEN = "8634579942:AAFVXcQCblXT5pjjx1Pl5fTOigBg4P7_dZ8"
-DEEPSEEK_API_KEY = "sk-5c112016a71c444e88ea825e3f8c7d4f"
+GROQ_API_KEY = "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"
 MEMORY_FILE = "memory.json"
 
 logging.basicConfig(level=logging.INFO)
@@ -52,15 +52,15 @@ def build_context(memory):
 {history_text}
 Если задача на код — пиши полный рабочий код. Если просят объяснить — объясняй как другу с примерами."""
 
-async def ask_deepseek(prompt, context):
+async def ask_groq(prompt, context):
     try:
-        url = "https://api.deepseek.com/chat/completions"
+        url = "https://api.groq.com/openai/v1/chat/completions"
         headers = {
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
         payload = {
-            "model": "deepseek-chat",
+            "model": "llama-3.3-70b-versatile",
             "messages": [
                 {"role": "system", "content": context},
                 {"role": "user", "content": prompt}
@@ -70,10 +70,10 @@ async def ask_deepseek(prompt, context):
         async with httpx.AsyncClient(timeout=120) as client:
             r = await client.post(url, json=payload, headers=headers)
             data = r.json()
-            logger.info(f"DeepSeek response: {str(data)[:200]}")
+            logger.info(f"Groq response status: {r.status_code}")
             return data["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.error(f"DeepSeek error: {e}")
+        logger.error(f"Groq error: {e}")
         return None
 
 async def process_background(app, chat_id, text, memory):
@@ -81,7 +81,7 @@ async def process_background(app, chat_id, text, memory):
         context = build_context(memory)
         await app.bot.send_message(chat_id, "⚙️ Работаю... Занимайся своими делами!")
 
-        result = await ask_deepseek(text, context)
+        result = await ask_groq(text, context)
 
         if result:
             add_to_history(memory, "Пользователь", text)
@@ -104,7 +104,7 @@ async def process_background(app, chat_id, text, memory):
             else:
                 await app.bot.send_message(chat_id, full)
         else:
-            await app.bot.send_message(chat_id, "❌ DeepSeek не ответил. Попробуй ещё раз через минуту.")
+            await app.bot.send_message(chat_id, "❌ Groq не ответил. Попробуй ещё раз через минуту.")
 
     except Exception as e:
         logger.error(f"Background error: {e}")
@@ -151,5 +151,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
