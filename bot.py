@@ -1,884 +1,1571 @@
-import json
+        import json
 import asyncio
 import logging
 import os
 import re
+import base64
 from datetime import datetime, timedelta
 from pathlib import Path
-import httpx
+from typing import Dict, List, Optional, Tuple, Any
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+import httpx
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
-# ══════════════════════════════════════════
-#  КЛЮЧИ
-# ══════════════════════════════════════════
+# =============================================
+#  API KEYS
+# =============================================
 TELEGRAM_TOKEN = "8634579942:AAFVXcQCblXT5pjjx1Pl5fTOigBg4P7_dZ8"
-GROQ_KEY       = "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"
-GEMINI_KEY     = "AIzaSyD21rIGQxhzh6HXvb05Tkc5SYLBsFVn5II"
-DEEPSEEK_KEY   = "sk-5c112016a71c444e88ea825e3f8c7d4f"
-COHERE_KEY     = "UwiOG7P74hXPKzrSK4rk2P2xaRxw2Bc9R3PhXmT2"
+GROQ_KEY = "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"
+GEMINI_KEY = "AIzaSyD21rIGQxhzh6HXvb05Tkc5SYLBsFVn5II"
+DEEPSEEK_KEY = "sk-5c112016a71c444e88ea825e3f8c7d4f"
+COHERE_KEY = "UwiOG7P74hXPKzrSK4rk2P2xaRxw2Bc9R3PhXmT2"
 OPENROUTER_KEY = "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"
-SERPER_KEY     = "2def7b1526652c4af691804cd8ed41231666d0be"
+SERPER_KEY = "2def7b1526652c4af691804cd8ed41231666d0be"
 
-DATA_FILE      = "data.json"
+# =============================================
+#  FILES
+# =============================================
+DATA_FILE = "data.json"
 REMINDERS_FILE = "reminders.json"
 
-logging.basicConfig(level=logging.INFO)
+# =============================================
+#  LOGGING
+# =========================================23
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# ══════════════════════════════════════════
-#  ШАБЛОНЫ
-# ══════════════════════════════════════════
+# =============================================
+#  TEMPLATES
+# =============================================
 TEMPLATES = {
-    "🌐 Сайт":        "Напиши полный HTML файл с красивым CSS дизайном и JS, всё в одном файле. Сделай: ",
-    "🐍 Python":      "Напиши полный рабочий Python код без сокращений. Задача: ",
-    "🤖 Telegram бот":"Напиши полный код Telegram бота на Python. Бот должен: ",
-    "🎮 Игра":        "Напиши полную игру на Python или HTML/JS. Игра: ",
-    "📱 Приложение":  "Напиши полное приложение, весь код целиком. Приложение: ",
+    "🌐 Сайт": "Напиши полный HTML файл с красивым CSS дизайном и JS, всё в одном файле. Сделай: ",
+    "🐍 Python": "Напиши полный рабочий Python код без сокращений. Задача: ",
+    "🤖 Telegram бот": "Напиши полный код Telegram бота на Python. Бот должен: ",
+    "🎮 Игра": "Напиши полную игру на Python или HTML/JS. Игра: ",
+    "📱 Приложение": "Напиши полное приложение, весь код целиком. Приложение: ",
     "🗄️ База данных": "Напиши Python код с SQLite базой данных. Функционал: ",
-    "🎯 C++":         "Напиши полный рабочий C++ код. Задача: ",
-    "⚡ JavaScript":  "Напиши полный JavaScript код в одном файле. Задача: ",
-    "📚 Объяснить":   "Объясни простым языком с примерами: ",
-    "🔍 Поиск":       "Найди актуальную информацию в интернете про: ",
+    "🎯 C++": "Напиши полный рабочий C++ код. Задача: ",
+    "⚡ JavaScript": "Напиши полный JavaScript код в одном файле. Задача: ",
+    "📚 Объяснить": "Объясни простым языком с примерами: ",
+    "🔍 Поиск": "Найди актуальную информацию в интернете про: ",
 }
 
-# ══════════════════════════════════════════
-#  КЛАВИАТУРА
-# ══════════════════════════════════════════
-def main_kb():
-    return ReplyKeyboardMarkup([
-        [KeyboardButton("💬 Новый чат"),    KeyboardButton("📂 Мои чаты")],
-        [KeyboardButton("📋 Шаблоны"),      KeyboardButton("🔍 Поиск")],
-        [KeyboardButton("⏰ Напоминания"),   KeyboardButton("🧠 Память")],
-        [KeyboardButton("📡 Статус AI"),    KeyboardButton("❓ Помощь")],
-    ], resize_keyboard=True, persistent=True)
+# =============================================
+#  KEYBOARDS
+# =============================================
+def main_keyboard() -> ReplyKeyboardMarkup:
+    """Главная клавиатура с кнопками"""
+    keyboard = [
+        [KeyboardButton("💬 Новый чат"), KeyboardButton("📂 Мои чаты")],
+        [KeyboardButton("📋 Шаблоны"), KeyboardButton("🔍 Поиск")],
+        [KeyboardButton("⏰ Напоминания"), KeyboardButton("🧠 Память")],
+        [KeyboardButton("📡 Статус AI"), KeyboardButton("❓ Помощь")],
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        persistent=True,
+        input_field_placeholder="Выбери действие или напиши сообщение..."
+    )
 
-# ══════════════════════════════════════════
-#  РАБОТА С ДАННЫМИ
-# ══════════════════════════════════════════
-def load_data():
+# =============================================
+#  DATA MANAGEMENT
+# =============================================
+def load_data() -> Dict[str, Any]:
+    """Загружает данные из файла data.json"""
     if Path(DATA_FILE).exists():
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading data: {e}")
+    
+    # Структура по умолчанию
     return {
         "current": "main",
         "chats": {
-            "main": {"name": "Основной чат", "history": [], "created": datetime.now().strftime("%d.%m.%Y")}
+            "main": {
+                "name": "Основной чат",
+                "history": [],
+                "created": datetime.now().strftime("%d.%m.%Y")
+            }
         },
         "topics": [],
         "last_code": ""
     }
 
-def save_data(d):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
+def save_data(data: Dict[str, Any]) -> None:
+    """Сохраняет данные в файл data.json"""
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving data: {e}")
 
-def load_reminders():
+def load_reminders() -> List[Dict[str, Any]]:
+    """Загружает напоминания из файла reminders.json"""
     if Path(REMINDERS_FILE).exists():
-        with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error loading reminders: {e}")
     return []
 
-def save_reminders(r):
-    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(r, f, ensure_ascii=False, indent=2)
+def save_reminders(reminders: List[Dict[str, Any]]) -> None:
+    """Сохраняет напоминания в файл reminders.json"""
+    try:
+        with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
+            json.dump(reminders, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving reminders: {e}")
 
-def history(d):
-    return d["chats"][d["current"]]["history"]
+def get_current_history(data: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Возвращает историю текущего чата"""
+    return data["chats"][data["current"]]["history"]
 
-def add_msg(d, role, text):
-    h = history(d)
-    h.append({"role": role, "text": text[:500], "time": datetime.now().strftime("%d.%m %H:%M")})
-    if len(h) > 50:
-        d["chats"][d["current"]]["history"] = h[-50:]
+def add_message(data: Dict[str, Any], role: str, text: str) -> None:
+    """Добавляет сообщение в историю текущего чата"""
+    history = get_current_history(data)
+    history.append({
+        "role": role,
+        "text": text[:500],  # Ограничиваем длину
+        "time": datetime.now().strftime("%d.%m %H:%M")
+    })
+    # Храним только последние 50 сообщений
+    if len(history) > 50:
+        data["chats"][data["current"]]["history"] = history[-50:]
 
-def make_context(d):
-    h = history(d)[-8:]
-    h_text = "\n".join([f"{m['role']}: {m['text']}" for m in h])
-    topics = ", ".join(d["topics"][-10:]) or "пока ничего"
-    chat_name = d["chats"][d["current"]]["name"]
-    last_code = d.get("last_code", "")
-    code_ctx = f"\nПоследний код (контекст):\n{last_code[:400]}" if last_code else ""
+def build_context(data: Dict[str, Any]) -> str:
+    """Строит контекст для AI из истории и тем"""
+    history = get_current_history(data)[-8:]  # Последние 8 сообщений
+    
+    history_text = "\n".join([
+        f"{msg['role']}: {msg['text']}" 
+        for msg in history
+    ])
+    
+    topics = ", ".join(data["topics"][-10:]) if data["topics"] else "пока ничего"
+    chat_name = data["chats"][data["current"]]["name"]
+    last_code = data.get("last_code", "")
+    
+    code_context = f"\nПоследний код (контекст):\n{last_code[:400]}" if last_code else ""
+    
     return (
-        f"Ты профессиональный AI-агент и разработчик. Отвечай на русском.\n"
-        f"Чат: {chat_name} | Темы: {topics}\n"
-        f"История:\n{h_text}{code_ctx}\n"
-        f"ПРАВИЛО: Код пиши ПОЛНОСТЬЮ без сокращений и заглушек!"
+        f"Ты профессиональный AI-агент и разработчик. Отвечай на русском языке.\n"
+        f"Чат: {chat_name} | Изученные темы: {topics}\n"
+        f"История диалога:\n{history_text}{code_context}\n"
+        f"ВАЖНО: Если пишешь код - пиши ПОЛНОСТЬЮ без сокращений и заглушек!"
     )
 
-def make_code_prompt(task):
+def build_code_prompt(task: str) -> str:
+    """Строит промпт для генерации кода"""
     return (
         f"Задача: {task}\n\n"
-        f"ТРЕБОВАНИЯ:\n"
+        f"ТРЕБОВАНИЯ К КОДУ:\n"
         f"1. Напиши ПОЛНЫЙ код от первой до последней строки\n"
-        f"2. НЕ используй заглушки # TODO или # здесь ваш код\n"
-        f"3. Добавь все импорты\n"
+        f"2. НЕ используй заглушки типа # TODO или # здесь ваш код\n"
+        f"3. Добавь все необходимые импорты\n"
         f"4. Код должен запускаться без изменений\n"
         f"5. Добавь обработку ошибок\n"
-        f"6. Комментарии на русском\n"
-        f"Пиши весь код целиком:"
+        f"6. Комментарии на русском языке\n"
+        f"7. Весь код должен быть в одном файле\n"
+        f"8. Минимум 50 строк кода\n\n"
+        f"Напиши код:"
     )
 
-def extract_code(text):
-    codes = re.findall(r'```(?:\w+\n)?(.*?)```', text, re.DOTALL)
-    if not codes:
-        codes = re.findall(r'```(.*?)```', text, re.DOTALL)
-    if codes:
-        best = max(codes, key=len).strip()
-        return best if len(best) > 50 else None
+def extract_code_from_text(text: str) -> Optional[str]:
+    """Извлекает код из текста (между ```)"""
+    # Ищем блоки кода
+    patterns = [
+        r'```(?:\w+)?\n(.*?)```',
+        r'```(.*?)```',
+        r'`(.*?)`',
+    ]
+    
+    for pattern in patterns:
+        codes = re.findall(pattern, text, re.DOTALL)
+        if codes:
+            # Берем самый длинный блок
+            best = max(codes, key=len).strip()
+            if len(best) > 50:  # Минимальная длина кода
+                return best
+    
     return None
 
-def get_ext(prompt, code):
-    p = prompt.lower()
-    if any(x in p for x in ['html', 'сайт', 'веб']): return 'html'
-    if 'css' in p: return 'css'
-    if any(x in p for x in ['javascript', ' js ']): return 'js'
-    if any(x in p for x in ['c++', 'cpp']): return 'cpp'
-    if any(x in p for x in ['c#', 'шарп']): return 'cs'
-    if 'kotlin' in p: return 'kt'
-    if 'swift' in p: return 'swift'
-    if 'rust' in p: return 'rs'
-    if any(x in p for x in ['golang', ' go ']): return 'go'
-    if 'php' in p: return 'php'
-    if 'ruby' in p: return 'rb'
-    if any(x in p for x in ['bash', 'shell']): return 'sh'
-    if 'sql' in p: return 'sql'
-    if any(x in p for x in ['dart', 'flutter']): return 'dart'
-    if 'java ' in p: return 'java'
+def detect_extension(prompt: str, code: str) -> str:
+    """Определяет расширение файла по промпту и коду"""
+    prompt_lower = prompt.lower()
+    
+    # По промпту
+    if any(x in prompt_lower for x in ['html', 'сайт', 'веб-страница', 'веб страница']):
+        return 'html'
+    if 'css' in prompt_lower:
+        return 'css'
+    if any(x in prompt_lower for x in ['javascript', 'js', 'скрипт']):
+        return 'js'
+    if any(x in prompt_lower for x in ['c++', 'cpp', 'плюсы']):
+        return 'cpp'
+    if any(x in prompt_lower for x in ['c#', 'csharp', 'шарп']):
+        return 'cs'
+    if 'kotlin' in prompt_lower:
+        return 'kt'
+    if 'swift' in prompt_lower:
+        return 'swift'
+    if 'rust' in prompt_lower:
+        return 'rs'
+    if any(x in prompt_lower for x in ['golang', 'go ']):
+        return 'go'
+    if 'php' in prompt_lower:
+        return 'php'
+    if 'ruby' in prompt_lower:
+        return 'rb'
+    if any(x in prompt_lower for x in ['bash', 'shell', 'sh']):
+        return 'sh'
+    if 'sql' in prompt_lower:
+        return 'sql'
+    if any(x in prompt_lower for x in ['dart', 'flutter']):
+        return 'dart'
+    if 'java' in prompt_lower and 'javascript' not in prompt_lower:
+        return 'java'
+    
+    # По содержимому кода
     if code:
-        if '#include' in code or 'cout' in code: return 'cpp'
-        if 'using System' in code: return 'cs'
-        if 'console.log' in code: return 'js'
-        if '<html' in code: return 'html'
+        if '#include' in code or 'cout' in code or 'using namespace' in code:
+            return 'cpp'
+        if 'using System' in code or 'namespace' in code and 'class' in code:
+            return 'cs'
+        if 'console.log' in code or 'function' in code and 'var' in code:
+            return 'js'
+        if '<html' in code or '<!DOCTYPE' in code:
+            return 'html'
+        if 'def ' in code and 'import' in code:
+            return 'py'
+        if 'package main' in code and 'func main' in code:
+            return 'go'
+        if '<?php' in code:
+            return 'php'
+        if 'CREATE TABLE' in code or 'SELECT * FROM' in code:
+            return 'sql'
+    
+    # По умолчанию
     return 'py'
 
-def is_code(text):
-    return any(k in text.lower() for k in [
-        "создай","напиши","сделай","код","приложение","скрипт",
-        "программу","бот","сайт","функцию","калькулятор","игру","база данных"
-    ])
+def is_code_request(text: str) -> bool:
+    """Проверяет, просит ли пользователь код"""
+    keywords = [
+        "создай", "напиши", "сделай", "код", "приложение", "скрипт",
+        "программу", "бот", "сайт", "функцию", "калькулятор", "игру",
+        "база данных", "класс", "алгоритм", "парсер", "api"
+    ]
+    text_lower = text.lower()
+    return any(k in text_lower for k in keywords)
 
-def is_search(text):
-    return any(k in text.lower() for k in [
-        "найди","поищи","что сейчас","новости","актуально","курс","погода","цена"
-    ])
+def is_search_request(text: str) -> bool:
+    """Проверяет, просит ли пользователь поиск"""
+    keywords = [
+        "найди", "поищи", "что сейчас", "новости", "актуально", 
+        "курс", "погода", "цена", "кто такой", "что такое", "где"
+    ]
+    text_lower = text.lower()
+    return any(k in text_lower for k in keywords)
 
-# ══════════════════════════════════════════
-#  AI ПРОВАЙДЕРЫ
-# ══════════════════════════════════════════
-async def ask_groq(prompt, ctx):
+# =============================================
+#  AI PROVIDERS
+# =============================================
+async def ask_groq(prompt: str, system_context: str) -> Optional[str]:
+    """Запрос к Groq API"""
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
                 "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile",
-                      "messages": [{"role": "system", "content": ctx}, {"role": "user", "content": prompt}],
-                      "max_tokens": 8000, "temperature": 0.3}
+                headers={
+                    "Authorization": f"Bearer {GROQ_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": system_context},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 8000,
+                    "temperature": 0.3
+                }
             )
-            return r.json()["choices"][0]["message"]["content"]
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.error(f"Groq: {e}")
+        logger.error(f"Groq error: {e}")
         return None
 
-async def ask_gemini(prompt, ctx):
+async def ask_gemini(prompt: str, system_context: str) -> Optional[str]:
+    """Запрос к Gemini API"""
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
-                json={"contents": [{"parts": [{"text": f"{ctx}\n\n{prompt}\n\nПиши ПОЛНЫЙ код!"}]}],
-                      "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3}}
+                json={
+                    "contents": [
+                        {
+                            "parts": [
+                                {"text": f"{system_context}\n\n{prompt}\n\nПиши ПОЛНЫЙ код без сокращений!"}
+                            ]
+                        }
+                    ],
+                    "generationConfig": {
+                        "maxOutputTokens": 8192,
+                        "temperature": 0.3
+                    }
+                }
             )
-            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        logger.error(f"Gemini: {e}")
+        logger.error(f"Gemini error: {e}")
         return None
 
-async def ask_openrouter(prompt, ctx):
+async def ask_openrouter(prompt: str, system_context: str) -> Optional[str]:
+    """Запрос к OpenRouter API"""
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
                 "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"},
-                json={"model": "deepseek/deepseek-chat",
-                      "messages": [{"role": "system", "content": ctx}, {"role": "user", "content": prompt}],
-                      "max_tokens": 8000}
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek/deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_context},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 8000
+                }
             )
-            return r.json()["choices"][0]["message"]["content"]
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.error(f"OpenRouter: {e}")
+        logger.error(f"OpenRouter error: {e}")
         return None
 
-async def ask_cohere(prompt, ctx):
+async def ask_cohere(prompt: str, system_context: str) -> Optional[str]:
+    """Запрос к Cohere API"""
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
                 "https://api.cohere.ai/v1/chat",
-                headers={"Authorization": f"Bearer {COHERE_KEY}", "Content-Type": "application/json"},
-                json={"model": "command-r-plus", "message": prompt, "preamble": ctx, "max_tokens": 4000}
+                headers={
+                    "Authorization": f"Bearer {COHERE_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "command-r-plus",
+                    "message": prompt,
+                    "preamble": system_context,
+                    "max_tokens": 4000
+                }
             )
-            return r.json()["text"]
+            data = response.json()
+            return data["text"]
     except Exception as e:
-        logger.error(f"Cohere: {e}")
+        logger.error(f"Cohere error: {e}")
         return None
 
-async def ask_deepseek(prompt, ctx):
+async def ask_deepseek(prompt: str, system_context: str) -> Optional[str]:
+    """Запрос к DeepSeek API"""
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
                 "https://api.deepseek.com/chat/completions",
-                headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-                json={"model": "deepseek-chat",
-                      "messages": [{"role": "system", "content": ctx}, {"role": "user", "content": prompt}],
-                      "max_tokens": 8000}
+                headers={
+                    "Authorization": f"Bearer {DEEPSEEK_KEY}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "deepseek-chat",
+                    "messages": [
+                        {"role": "system", "content": system_context},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "max_tokens": 8000
+                }
             )
-            return r.json()["choices"][0]["message"]["content"]
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
     except Exception as e:
-        logger.error(f"DeepSeek: {e}")
+        logger.error(f"DeepSeek error: {e}")
         return None
 
-async def best_ai(prompt, ctx, for_code=False):
-    """Пробует провайдеры по очереди"""
-    order = (
-        [ask_openrouter, ask_gemini, ask_groq, ask_cohere]
-        if for_code else
-        [ask_groq, ask_openrouter, ask_gemini, ask_cohere]
-    )
-    names = {ask_groq: "Groq", ask_gemini: "Gemini",
-             ask_openrouter: "OpenRouter", ask_cohere: "Cohere", ask_deepseek: "DeepSeek"}
-    for fn in order:
-        result = await fn(prompt, ctx)
-        if result:
-            return result, names[fn]
+async def get_best_ai_response(prompt: str, system_context: str, for_code: bool = False) -> Tuple[Optional[str], Optional[str]]:
+    """Пробует провайдеров по очереди, пока не получит ответ"""
+    
+    # Очередность провайдеров в зависимости от типа запроса
+    if for_code:
+        providers = [
+            (ask_openrouter, "OpenRouter"),
+            (ask_gemini, "Gemini"),
+            (ask_groq, "Groq"),
+            (ask_cohere, "Cohere"),
+            (ask_deepseek, "DeepSeek"),
+        ]
+    else:
+        providers = [
+            (ask_groq, "Groq"),
+            (ask_openrouter, "OpenRouter"),
+            (ask_gemini, "Gemini"),
+            (ask_cohere, "Cohere"),
+            (ask_deepseek, "DeepSeek"),
+        ]
+    
+    for provider_func, provider_name in providers:
+        try:
+            result = await provider_func(prompt, system_context)
+            if result:
+                logger.info(f"Got response from {provider_name}")
+                return result, provider_name
+        except Exception as e:
+            logger.error(f"{provider_name} error: {e}")
+            continue
+    
     return None, None
 
-async def smart_code(task, ctx):
-    """Умная генерация — если код короткий, просит дописать"""
-    result, ai_name = await best_ai(make_code_prompt(task), ctx, for_code=True)
+async def generate_code_smart(task: str, system_context: str) -> Tuple[Optional[str], Optional[str]]:
+    """Умная генерация кода с проверкой длины"""
+    
+    # Первая попытка
+    result, ai_name = await get_best_ai_response(
+        build_code_prompt(task), 
+        system_context, 
+        for_code=True
+    )
+    
     if not result:
         return None, None
-    code = extract_code(result)
+    
+    # Извлекаем код
+    code = extract_code_from_text(result)
+    
+    # Если код слишком короткий, просим дописать
     if code and len(code) < 800:
-        expand = (
-            f"Код слишком короткий. Задача: {task}\n"
-            f"Предыдущий код:\n```\n{code}\n```\n"
-            f"Допиши полностью — добавь все функции, UI, обработку ошибок. Пиши весь код заново:"
+        expand_prompt = (
+            f"Код слишком короткий. Задача: {task}\n\n"
+            f"Предыдущий код:\n```\n{code}\n```\n\n"
+            f"Допиши код полностью - добавь все функции, UI, обработку ошибок. "
+            f"Напиши весь код заново, но теперь ПОЛНОСТЬЮ, минимум 100 строк!"
         )
-        result2, ai2 = await best_ai(expand, ctx, for_code=True)
+        
+        result2, ai_name2 = await get_best_ai_response(
+            expand_prompt,
+            system_context,
+            for_code=True
+        )
+        
         if result2 and len(result2) > len(result):
             return result2, f"{ai_name}+доп"
+    
     return result, ai_name
 
-async def check_all_ai():
+async def check_all_providers() -> Dict[str, str]:
     """Параллельная проверка всех провайдеров"""
-    test = "Скажи ок"
-    ctx = "Ты помощник"
+    
+    test_prompt = "Скажи 'ок' одним словом"
+    test_context = "Ты помощник. Отвечай кратко."
+    
     providers = [
-        ("🟢 Groq",       ask_groq),
-        ("💎 Gemini",      ask_gemini),
-        ("🔷 OpenRouter",  ask_openrouter),
-        ("🟡 Cohere",      ask_cohere),
-        ("🔵 DeepSeek",    ask_deepseek),
+        ("🟢 Groq", ask_groq),
+        ("💎 Gemini", ask_gemini),
+        ("🔷 OpenRouter", ask_openrouter),
+        ("🟡 Cohere", ask_cohere),
+        ("🔵 DeepSeek", ask_deepseek),
     ]
-    async def check(name, fn):
+    
+    async def check_provider(name: str, func: callable) -> Tuple[str, str]:
         try:
-            r = await asyncio.wait_for(fn(test, ctx), timeout=8)
-            return name, "✅ Работает" if r else "❌ Нет ответа"
+            result = await asyncio.wait_for(func(test_prompt, test_context), timeout=8)
+            if result:
+                return name, "✅ Работает"
+            else:
+                return name, "❌ Нет ответа"
         except asyncio.TimeoutError:
             return name, "⏱ Таймаут"
         except Exception:
             return name, "❌ Ошибка"
-    results = await asyncio.gather(*[check(n, f) for n, f in providers])
+    
+    results = await asyncio.gather(*[
+        check_provider(name, func) for name, func in providers
+    ])
+    
     return dict(results)
 
-# ══════════════════════════════════════════
-#  ГОЛОС И ФОТО
-# ══════════════════════════════════════════
-async def voice_to_text(data):
+# =============================================
+#  VOICE AND IMAGE PROCESSING
+# =============================================
+async def transcribe_voice(audio_data: bytes) -> str:
+    """Распознает голосовое сообщение через Groq Whisper"""
     try:
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=60) as client:
+            files = {
+                "file": ("audio.ogg", audio_data, "audio/ogg"),
+                "model": (None, "whisper-large-v3"),
+                "language": (None, "ru"),
+                "response_format": (None, "json")
+            }
+            
+            response = await client.post(
                 "https://api.groq.com/openai/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {GROQ_KEY}"},
-                files={"file": ("audio.ogg", data, "audio/ogg"), "model": (None, "whisper-large-v3")}
+                files=files
             )
-            return r.json().get("text", "")
+            
+            data = response.json()
+            return data.get("text", "")
     except Exception as e:
-        logger.error(f"Whisper: {e}")
+        logger.error(f"Whisper error: {e}")
         return ""
 
-async def analyze_photo(img_bytes, prompt):
+async def analyze_image(image_bytes: bytes, prompt: str = "") -> Optional[str]:
+    """Анализирует изображение через Gemini Vision"""
     try:
-        import base64
-        b64 = base64.b64encode(img_bytes).decode()
-        async with httpx.AsyncClient(timeout=60) as c:
-            r = await c.post(
+        # Кодируем изображение в base64
+        b64_image = base64.b64encode(image_bytes).decode()
+        
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(
                 f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_KEY}",
-                json={"contents": [{"parts": [
-                    {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
-                    {"text": prompt or "Опиши подробно что видишь. Отвечай на русском."}
-                ]}]}
+                json={
+                    "contents": [
+                        {
+                            "parts": [
+                                {
+                                    "inline_data": {
+                                        "mime_type": "image/jpeg",
+                                        "data": b64_image
+                                    }
+                                },
+                                {
+                                    "text": prompt or "Опиши подробно что видишь на этом изображении. Отвечай на русском языке."
+                                }
+                            ]
+                        }
+                    ]
+                }
             )
-            return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        logger.error(f"Vision: {e}")
+        logger.error(f"Vision error: {e}")
         return None
 
-# ══════════════════════════════════════════
-#  ПОИСК
-# ══════════════════════════════════════════
-async def web_search(query):
+# =============================================
+#  WEB SEARCH
+# =============================================
+async def search_web(query: str) -> str:
+    """Поиск в интернете через Serper API"""
     try:
-        async with httpx.AsyncClient(timeout=20) as c:
-            r = await c.post(
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(
                 "https://google.serper.dev/search",
-                headers={"X-API-KEY": SERPER_KEY, "Content-Type": "application/json"},
-                json={"q": query, "gl": "ru", "hl": "ru", "num": 5}
+                headers={
+                    "X-API-KEY": SERPER_KEY,
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "q": query,
+                    "gl": "ru",
+                    "hl": "ru",
+                    "num": 5
+                }
             )
-            data = r.json()
-        out = []
-        if "answerBox" in data:
-            ans = data["answerBox"].get("answer") or data["answerBox"].get("snippet", "")
-            if ans: out.append(f"📌 {ans}")
-        for item in data.get("organic", [])[:4]:
-            out.append(f"• *{item.get('title','')}*\n{item.get('snippet','')}")
-        return "\n\n".join(out) if out else "Ничего не найдено"
+            
+            data = response.json()
+            
+            result_parts = []
+            
+            # Ответ от Google (быстрые ответы)
+            if "answerBox" in data:
+                answer_box = data["answerBox"]
+                if "answer" in answer_box:
+                    result_parts.append(f"📌 {answer_box['answer']}")
+                elif "snippet" in answer_box:
+                    result_parts.append(f"📌 {answer_box['snippet']}")
+            
+            # Органические результаты
+            if "organic" in data:
+                for item in data["organic"][:4]:
+                    title = item.get("title", "")
+                    snippet = item.get("snippet", "")
+                    if title and snippet:
+                        result_parts.append(f"• *{title}*\n{snippet}")
+                    elif snippet:
+                        result_parts.append(f"• {snippet}")
+            
+            if result_parts:
+                return "\n\n".join(result_parts)
+            else:
+                return "По вашему запросу ничего не найдено."
+                
     except Exception as e:
-        logger.error(f"Search: {e}")
-        return "Ошибка поиска"
+        logger.error(f"Search error: {e}")
+        return f"Ошибка при поиске: {e}"
 
-# ══════════════════════════════════════════
-#  НАПОМИНАНИЯ
-# ══════════════════════════════════════════
-def parse_time(text):
+# =============================================
+#  REMINDERS
+# =============================================
+def parse_reminder_time(text: str) -> Tuple[Optional[datetime], str]:
+    """Парсит время из текста напоминания"""
     now = datetime.now()
-    checks = [
-        (r'через (\d+) минут', lambda m: now + timedelta(minutes=int(m.group(1)))),
-        (r'через (\d+) час',   lambda m: now + timedelta(hours=int(m.group(1)))),
-        (r'через (\d+) день',  lambda m: now + timedelta(days=int(m.group(1)))),
-        (r'завтра в (\d+):(\d+)', lambda m: (now + timedelta(days=1)).replace(
-            hour=int(m.group(1)), minute=int(m.group(2)), second=0)),
-        (r'в (\d+):(\d+)', lambda m: (
-            now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0)
-            if now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0) > now
-            else now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0) + timedelta(days=1)
-        )),
+    text_lower = text.lower()
+    
+    # Шаблоны для поиска времени
+    patterns = [
+        # через X минут
+        (r'через (\d+)\s*минут', lambda m: now + timedelta(minutes=int(m.group(1)))),
+        # через X час/часа/часов
+        (r'через (\d+)\s*час', lambda m: now + timedelta(hours=int(m.group(1)))),
+        # через X день/дня/дней
+        (r'через (\d+)\s*дн', lambda m: now + timedelta(days=int(m.group(1)))),
+        # завтра в HH:MM
+        (r'завтра в (\d{1,2}):(\d{2})', lambda m: (now + timedelta(days=1)).replace(
+            hour=int(m.group(1)), minute=int(m.group(2)), second=0, microsecond=0)),
+        # в HH:MM (сегодня или завтра)
+        (r'в (\d{1,2}):(\d{2})', lambda m: parse_hhmm(now, int(m.group(1)), int(m.group(2)))),
+        # через X часов Y минут
+        (r'через (\d+)\s*час(?:ов)?\s*(\d+)\s*минут', 
+         lambda m: now + timedelta(hours=int(m.group(1)), minutes=int(m.group(2)))),
     ]
-    for pattern, fn in checks:
-        m = re.search(pattern, text.lower())
-        if m:
-            return fn(m), re.sub(pattern, '', text, flags=re.IGNORECASE).strip()
+    
+    for pattern, func in patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            try:
+                reminder_time = func(match)
+                # Убираем временную часть из текста
+                clean_text = re.sub(pattern, '', text, flags=re.IGNORECASE).strip()
+                return reminder_time, clean_text
+            except Exception as e:
+                logger.error(f"Time parse error: {e}")
+                continue
+    
     return None, text
 
-async def reminder_loop(app):
+def parse_hhmm(now: datetime, hour: int, minute: int) -> datetime:
+    """Парсит время в формате HH:MM"""
+    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate > now:
+        return candidate
+    else:
+        return candidate + timedelta(days=1)
+
+async def reminder_check_loop(app: Application) -> None:
+    """Фоновый цикл проверки напоминаний"""
     while True:
         try:
-            rems = load_reminders()
+            reminders = load_reminders()
             now = datetime.now()
-            keep = []
-            for r in rems:
-                if now >= datetime.fromisoformat(r["time"]):
-                    await app.bot.send_message(
-                        r["chat_id"],
-                        f"⏰ *Напоминание!*\n\n{r['text']}",
-                        parse_mode="Markdown"
-                    )
+            to_keep = []
+            
+            for reminder in reminders:
+                reminder_time = datetime.fromisoformat(reminder["time"])
+                if now >= reminder_time:
+                    # Отправляем напоминание
+                    try:
+                        await app.bot.send_message(
+                            chat_id=reminder["chat_id"],
+                            text=f"⏰ *Напоминание!*\n\n{reminder['text']}",
+                            parse_mode="Markdown"
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send reminder: {e}")
                 else:
-                    keep.append(r)
-            if len(keep) != len(rems):
-                save_reminders(keep)
+                    to_keep.append(reminder)
+            
+            if len(to_keep) != len(reminders):
+                save_reminders(to_keep)
+                
         except Exception as e:
-            logger.error(f"Reminder loop: {e}")
-        await asyncio.sleep(60)
+            logger.error(f"Reminder loop error: {e}")
+        
+        await asyncio.sleep(60)  # Проверяем каждую минуту
 
-# ══════════════════════════════════════════
-#  ОБРАБОТКА ЗАПРОСОВ
-# ══════════════════════════════════════════
-async def process(app, chat_id, text, d, img=None):
-    try:
-        ctx = make_context(d)
-
-        if img is not None:
-            await app.bot.send_message(chat_id, "🔍 Анализирую изображение...")
-            result = await analyze_photo(img, text)
-            if result:
-                await send_long(app, chat_id, f"🖼 *Анализ:*\n\n{result}")
-            else:
-                await app.bot.send_message(chat_id, "❌ Не удалось проанализировать")
-            return
-
-        await app.bot.send_message(chat_id, "⚙️ Работаю... Занимайся своими делами!")
-
-        result, ai_name = None, None
-
-        if is_search(text):
-            await app.bot.send_message(chat_id, "🌐 Ищу в интернете...")
-            found = await web_search(text)
-            result, ai_name = await best_ai(
-                f"Ответь на вопрос используя результаты поиска: {text}",
-                ctx + f"\nРезультаты поиска:\n{found}"
+# =============================================
+#  MESSAGE SENDING
+# =============================================
+async def send_long_message(
+    bot, 
+    chat_id: int, 
+    text: str, 
+    parse_mode: str = "Markdown"
+) -> None:
+    """Отправляет длинное сообщение по частям"""
+    max_length = 4096
+    
+    if len(text) <= max_length:
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=parse_mode
             )
-            if found and found != "Ошибка поиска":
-                await send_long(app, chat_id, f"🌐 *Найдено:*\n\n{found}")
-
-        elif is_code(text):
-            await app.bot.send_message(chat_id, "💻 Пишу полный код...")
-            result, ai_name = await smart_code(text, ctx)
-
-        else:
-            result, ai_name = await best_ai(text, ctx)
-
-        if not result:
-            await app.bot.send_message(chat_id, "❌ Все AI не ответили. Попробуй позже.")
-            return
-
-        add_msg(d, "Пользователь", text)
-        add_msg(d, "Агент", result[:400])
-
-        if any(w in text.lower() for w in ["изучи","расскажи","объясни","что такое"]):
-            if text[:60] not in d["topics"]:
-                d["topics"].append(text[:60])
-
-        if is_code(text):
-            code = extract_code(result)
-            if code and len(code) > 100:
-                d["last_code"] = code[:800]
-                save_data(d)
-                ext = get_ext(text, code)
-                fname = f"code.{ext}"
-                explanation = re.sub(r'```.*?```', '', result, flags=re.DOTALL).strip()
-                if explanation and len(explanation) > 20:
-                    await send_long(app, chat_id, f"✅ Готово! _{ai_name}_\n\n{explanation}")
-                with open(fname, 'w', encoding='utf-8') as f:
-                    f.write(code)
-                kb = os.path.getsize(fname) / 1024
-                lines = len(code.splitlines())
-                with open(fname, 'rb') as f:
-                    await app.bot.send_document(
-                        chat_id, f, filename=fname,
-                        caption=f"📁 `{fname}` • {kb:.1f} KB • {lines} строк\n🤖 {ai_name}"
-                    )
-                os.remove(fname)
-                save_data(d)
-                return
-
-        save_data(d)
-        await send_long(app, chat_id, f"✅ Готово! _{ai_name}_\n\n{result}")
-
-    except Exception as e:
-        logger.error(f"process: {e}")
-        await app.bot.send_message(chat_id, f"❌ Ошибка: {e}")
-
-async def send_long(app, chat_id, text):
-    """Отправляет длинный текст частями"""
-    if len(text) <= 4096:
-        try:
-            await app.bot.send_message(chat_id, text, parse_mode="Markdown")
         except Exception:
-            await app.bot.send_message(chat_id, text)
+            # Если Markdown не работает, отправляем без форматирования
+            await bot.send_message(chat_id=chat_id, text=text)
         return
-    chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
+    
+    # Разбиваем на части
+    chunks = []
+    for i in range(0, len(text), max_length - 500):
+        chunk = text[i:i + max_length - 500]
+        chunks.append(chunk)
+    
     for i, chunk in enumerate(chunks, 1):
+        header = f"📄 *Часть {i}/{len(chunks)}:*\n\n"
+        full_text = header + chunk
+        
         try:
-            await app.bot.send_message(chat_id, f"📄 *{i}/{len(chunks)}:*\n\n{chunk}", parse_mode="Markdown")
+            await bot.send_message(
+                chat_id=chat_id,
+                text=full_text,
+                parse_mode=parse_mode
+            )
         except Exception:
-            await app.bot.send_message(chat_id, chunk)
-        await asyncio.sleep(0.3)
+            await bot.send_message(chat_id=chat_id, text=full_text)
+        
+        await asyncio.sleep(0.5)  # Небольшая задержка между частями
 
-# ══════════════════════════════════════════
-#  КОМАНДЫ
-# ══════════════════════════════════════════
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    d = load_data()
-    await update.message.reply_text(
+# =============================================
+#  COMMAND HANDLERS
+# =============================================
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /start"""
+    data = load_data()
+    current_chat = data["chats"][data["current"]]
+    
+    welcome_text = (
         f"👋 *Привет! Я твой AI-агент*\n\n"
-        f"├ 💬 Чат: {d['chats'][d['current']]['name']}\n"
-        f"├ 📁 Чатов: {len(d['chats'])}\n"
-        f"└ 📚 Тем: {len(d['topics'])}\n\n"
-        f"🤖 *5 AI провайдеров:*\n"
+        f"├ 💬 Текущий чат: {current_chat['name']}\n"
+        f"├ 📁 Всего чатов: {len(data['chats'])}\n"
+        f"├ 📚 Изучено тем: {len(data['topics'])}\n"
+        f"└ 📨 Сообщений: {len(current_chat['history'])}\n\n"
+        f"🤖 *Доступные AI провайдеры:*\n"
         f"Groq • Gemini • OpenRouter • Cohere • DeepSeek\n\n"
-        f"🚀 *Умею:*\n"
-        f"├ 💻 Код на 15+ языках → файлом\n"
-        f"├ 🎤 Голосовые сообщения\n"
-        f"├ 📸 Анализ фото\n"
-        f"├ 🌐 Поиск в интернете\n"
-        f"└ ⏰ Напоминания\n\n"
-        f"👇 Используй кнопки!",
-        parse_mode="Markdown", reply_markup=main_kb()
+        f"🚀 *Что я умею:*\n"
+        f"├ 💻 Писать код на 15+ языках → отправляю файлом\n"
+        f"├ 🎤 Распознавать голосовые сообщения\n"
+        f"├ 📸 Анализировать фотографии\n"
+        f"├ 🌐 Искать в интернете\n"
+        f"├ ⏰ Ставить напоминания\n"
+        f"├ 💬 Поддерживать несколько чатов\n"
+        f"└ 📋 Использовать готовые шаблоны\n\n"
+        f"👇 Используй кнопки меню!"
+    )
+    
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
     )
 
-async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /restart"""
+    # Очищаем данные пользователя
     context.user_data.clear()
+    
     await update.message.reply_text(
-        "🔄 *Бот перезапущен!*\nВсё готово 👇",
-        parse_mode="Markdown", reply_markup=main_kb()
+        "🔄 *Бот перезапущен!*\n\nВсе данные пользователя очищены.",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
     )
 
-async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("📡 Проверяю все AI... подожди ~8 сек")
-    results = await check_all_ai()
-    text = "📡 *Статус AI провайдеров:*\n\n"
+async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /memory"""
+    data = load_data()
+    current_chat = data["chats"][data["current"]]
+    
+    # Последние темы
+    topics_text = "\n".join([f"• {t}" for t in data["topics"][-15:]]) if data["topics"] else "Пока нет изученных тем"
+    
+    # Последние сообщения
+    recent_messages = []
+    for msg in current_chat["history"][-10:]:
+        role_icon = "👤" if msg["role"] == "Пользователь" else "🤖"
+        recent_messages.append(f"{role_icon} *{msg['time']}*\n{msg['text'][:100]}...")
+    
+    messages_text = "\n\n".join(recent_messages) if recent_messages else "Нет сообщений"
+    
+    memory_text = (
+        f"🧠 *Память бота*\n\n"
+        f"*Текущий чат:* {current_chat['name']}\n"
+        f"*Всего сообщений:* {len(current_chat['history'])}\n"
+        f"*Всего чатов:* {len(data['chats'])}\n\n"
+        f"📚 *Изученные темы (последние 15):*\n{topics_text}\n\n"
+        f"💬 *Последние сообщения:*\n\n{messages_text}"
+    )
+    
+    await send_long_message(context.bot, update.effective_chat.id, memory_text)
+
+async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /clear"""
+    data = load_data()
+    chat_name = data["chats"][data["current"]]["name"]
+    
+    # Очищаем историю текущего чата
+    data["chats"][data["current"]]["history"] = []
+    data["last_code"] = ""
+    save_data(data)
+    
+    await update.message.reply_text(
+        f"🗑 Чат *{chat_name}* полностью очищен!",
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
+    )
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /status"""
+    status_msg = await update.message.reply_text(
+        "📡 Проверяю все AI провайдеры... Это займет около 8 секунд."
+    )
+    
+    results = await check_all_providers()
+    
+    status_text = "📡 *Статус AI провайдеров:*\n\n"
     for name, status in results.items():
-        text += f"{name}: {status}\n"
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=main_kb())
-
-async def cmd_new(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✏️ Введи название нового чата:")
-    context.user_data["wait"] = "chat_name"
-
-async def cmd_chats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    d = load_data()
-    cur = d["current"]
-    kb = []
-    for key, chat in d["chats"].items():
-        mark = "✅ " if key == cur else "💬 "
-        kb.append([InlineKeyboardButton(
-            f"{mark}{chat['name']} ({len(chat['history'])} сообщ.)",
-            callback_data=f"sw_{key}"
-        )])
-    kb.append([
-        InlineKeyboardButton("➕ Новый", callback_data="new_chat"),
-        InlineKeyboardButton("🗑 Удалить", callback_data="del_menu")
-    ])
-    await update.message.reply_text(
-        "💬 *Твои чаты:*", parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
+        status_text += f"{name}: {status}\n"
+    
+    await status_msg.edit_text(
+        status_text,
+        parse_mode="Markdown",
+        reply_markup=main_keyboard()
     )
 
-async def cmd_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🌐 Что ищем?")
-    context.user_data["wait"] = "search"
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /help"""
+    help_text = (
+        "❓ *Как пользоваться ботом*\n\n"
+        "*Основные возможности:*\n"
+        "• Отправь голосовое сообщение → распознаю текст\n"
+        "• Отправь фото → опишу что на нём\n"
+        "• Напиши 'найди ...' → поиск в интернете\n"
+        "• Напиши 'напомни через 30 минут ...' → поставлю напоминание\n"
+        "• Напиши 'создай игру/сайт/бота' → сгенерирую код\n\n"
+        
+        "*Команды:*\n"
+        "/start - Главное меню со статистикой\n"
+        "/restart - Перезапустить бота\n"
+        "/status - Проверить статус AI провайдеров\n"
+        "/memory - Показать память и историю\n"
+        "/clear - Очистить текущий чат\n"
+        "/new - Создать новый чат\n"
+        "/chats - Управление чатами\n"
+        "/search - Поиск в интернете\n"
+        "/reminders - Управление напоминаниями\n"
+        "/help - Это сообщение\n\n"
+        
+        "*Кнопки меню:*\n"
+        "💬 Новый чат - создать новый диалог\n"
+        "📂 Мои чаты - список всех чатов\n"
+        "📋 Шаблоны - готовые шаблоны запросов\n"
+        "🔍 Поиск - поиск в интернете\n"
+        "⏰ Напоминания - управление напоминаниями\n"
+        "🧠 Память - показать историю и темы\n"
+        "📡 Статус AI - проверить провайдеров\n"
+        "❓ Помощь - это сообщение"
+    )
+    
+    await send_long_message(context.bot, update.effective_chat.id, help_text)
 
-async def cmd_reminders(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def new_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /new"""
+    await update.message.reply_text(
+        "✏️ Введите название для нового чата:"
+    )
+    context.user_data["waiting_for"] = "new_chat_name"
+
+async def chats_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /chats"""
+    data = load_data()
+    current = data["current"]
+    
+    keyboard = []
+    for chat_id, chat_info in data["chats"].items():
+        mark = "✅ " if chat_id == current else "💬 "
+        button_text = f"{mark}{chat_info['name']} ({len(chat_info['history'])} сообщ.)"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"switch_{chat_id}")])
+    
+    keyboard.append([
+        InlineKeyboardButton("➕ Новый чат", callback_data="new_chat"),
+        InlineKeyboardButton("🗑 Удалить", callback_data="delete_menu")
+    ])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        "💬 *Ваши чаты:*\n\nВыберите чат для переключения:",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
+    )
+
+async def search_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /search"""
+    await update.message.reply_text(
+        "🌐 Введите запрос для поиска в интернете:"
+    )
+    context.user_data["waiting_for"] = "web_search"
+
+async def reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик команды /reminders"""
     chat_id = update.effective_chat.id
-    rems = [r for r in load_reminders() if r["chat_id"] == chat_id]
-    kb = [[InlineKeyboardButton("➕ Добавить напоминание", callback_data="add_rem")]]
-    text = "⏰ *Напоминания:*\n\n"
-    if rems:
-        for i, r in enumerate(rems[:5]):
-            t = datetime.fromisoformat(r["time"]).strftime("%d.%m в %H:%M")
-            text += f"• {r['text']} — *{t}*\n"
-            kb.append([InlineKeyboardButton(f"🗑 {r['text'][:30]}", callback_data=f"del_rem_{i}")])
+    all_reminders = load_reminders()
+    user_reminders = [r for r in all_reminders if r["chat_id"] == chat_id]
+    
+    keyboard = []
+    
+    if user_reminders:
+        text = "⏰ *Ваши напоминания:*\n\n"
+        for i, rem in enumerate(user_reminders[:10]):  # Показываем последние 10
+            rem_time = datetime.fromisoformat(rem["time"])
+            time_str = rem_time.strftime("%d.%m.%Y в %H:%M")
+            text += f"• {rem['text']} — *{time_str}*\n"
+            keyboard.append([InlineKeyboardButton(
+                f"🗑 Удалить: {rem['text'][:30]}...",
+                callback_data=f"delete_reminder_{i}"
+            )])
     else:
-        text += (
-            "Нет активных\n\n"
-            "Примеры:\n"
+        text = (
+            "⏰ *Напоминания*\n\n"
+            "У вас пока нет активных напоминаний.\n\n"
+            "*Примеры:*\n"
             "• _напомни через 30 минут позвонить_\n"
             "• _напомни в 15:30 встреча_\n"
-            "• _напомни завтра в 10:00 купить_"
+            "• _напомни завтра в 10:00 купить хлеб_"
         )
-    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
-
-async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    d = load_data()
-    topics = "\n".join([f"• {t}" for t in d["topics"][-15:]]) or "Пока ничего"
-    cur = d["chats"][d["current"]]["name"]
+    
+    keyboard.append([InlineKeyboardButton("➕ Добавить напоминание", callback_data="add_reminder")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.message.reply_text(
-        f"🧠 *Память:*\n\n"
-        f"├ 💬 Чат: {cur}\n"
-        f"├ 📨 Сообщений: {len(history(d))}\n"
-        f"└ 📁 Чатов: {len(d['chats'])}\n\n"
-        f"📚 *Изученные темы:*\n{topics}",
-        parse_mode="Markdown", reply_markup=main_kb()
+        text,
+        parse_mode="Markdown",
+        reply_markup=reply_markup
     )
 
-async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    d = load_data()
-    name = d["chats"][d["current"]]["name"]
-    d["chats"][d["current"]]["history"] = []
-    d["last_code"] = ""
-    save_data(d)
-    await update.message.reply_text(f"🗑 Чат «{name}» очищен!", reply_markup=main_kb())
-
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def templates_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик кнопки Шаблоны"""
+    template_items = list(TEMPLATES.items())
+    
+    keyboard = []
+    # Создаем ряды по 2 кнопки
+    for i in range(0, len(template_items), 2):
+        row = []
+        # Первая кнопка в ряду
+        row.append(InlineKeyboardButton(
+            template_items[i][0],
+            callback_data=f"template_{i}"
+        ))
+        # Вторая кнопка, если есть
+        if i + 1 < len(template_items):
+            row.append(InlineKeyboardButton(
+                template_items[i + 1][0],
+                callback_data=f"template_{i + 1}"
+            ))
+        keyboard.append(row)
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
     await update.message.reply_text(
-        "❓ *Как пользоваться:*\n\n"
-        "🎤 Отправь голосовое — распознаю\n"
-        "📸 Отправь фото — опишу\n"
-        "🌐 Кнопка Поиск или напиши _найди..._\n"
-        "⏰ Напиши _напомни через 1 час..._\n"
-        "💻 Напиши _создай приложение..._\n"
-        "📡 Кнопка Статус AI — проверить провайдеры\n\n"
-        "⌨️ *Команды:*\n"
-        "/start — главное меню\n"
-        "/restart — перезапустить\n"
-        "/status — статус AI\n"
-        "/new — новый чат\n"
-        "/chats — список чатов\n"
-        "/search — поиск\n"
-        "/reminders — напоминания\n"
-        "/memory — память\n"
-        "/clear — очистить чат",
-        parse_mode="Markdown", reply_markup=main_kb()
+        "📋 *Выберите шаблон запроса:*\n\n"
+        "После выбора скопируйте текст и дополните его.",
+        parse_mode="Markdown",
+        reply_markup=reply_markup
     )
 
-# ══════════════════════════════════════════
-#  МЕДИА
-# ══════════════════════════════════════════
-async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =============================================
+#  CALLBACK QUERY HANDLER
+# =============================================
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик нажатий на инлайн кнопки"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = load_data()
     chat_id = update.effective_chat.id
-    await update.message.reply_text("🎤 Распознаю голос...")
-    try:
-        file = await context.bot.get_file(update.message.voice.file_id)
-        async with httpx.AsyncClient() as c:
-            r = await c.get(file.file_path)
-        text = await voice_to_text(r.content)
-        if text:
-            await update.message.reply_text(f"🎤 Ты сказал:\n_{text}_", parse_mode="Markdown")
-            d = load_data()
-            asyncio.create_task(process(context.application, chat_id, text, d))
-        else:
-            await update.message.reply_text("❌ Не удалось распознать")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {e}")
-
-async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    caption = update.message.caption or ""
-    await update.message.reply_text("📸 Анализирую...")
-    try:
-        file = await context.bot.get_file(update.message.photo[-1].file_id)
-        async with httpx.AsyncClient() as c:
-            r = await c.get(file.file_path)
-        d = load_data()
-        asyncio.create_task(process(context.application, chat_id, caption, d, img=r.content))
-    except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {e}")
-
-# ══════════════════════════════════════════
-#  КНОПКИ
-# ══════════════════════════════════════════
-async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-    d = load_data()
-    chat_id = update.effective_chat.id
-    data = q.data
-
-    if data.startswith("sw_"):
-        key = data[3:]
-        if key in d["chats"]:
-            d["current"] = key
-            save_data(d)
-            await q.edit_message_text(
-                f"✅ Чат: *{d['chats'][key]['name']}*",
+    
+    # Переключение чата
+    if data.startswith("switch_"):
+        chat_key = data[7:]
+        if chat_key in data["chats"]:
+            data["current"] = chat_key
+            save_data(data)
+            await query.edit_message_text(
+                f"✅ Переключился на чат: *{data['chats'][chat_key]['name']}*",
                 parse_mode="Markdown"
             )
-
-    elif data == "new_chat":
-        await q.edit_message_text("✏️ Напиши название нового чата:")
-        context.user_data["wait"] = "chat_name"
-
-    elif data == "del_menu":
-        kb = [[InlineKeyboardButton(f"🗑 {c['name']}", callback_data=f"del_{k}")]
-              for k, c in d["chats"].items() if k != "main"]
-        kb.append([InlineKeyboardButton("◀️ Назад", callback_data="back")])
-        if len(kb) == 1:
-            await q.edit_message_text("❌ Нет чатов для удаления")
+    
+    # Меню удаления чатов
+    elif data == "delete_menu":
+        keyboard = []
+        for chat_id_key, chat_info in data["chats"].items():
+            if chat_id_key != "main":  # Не даем удалить основной чат
+                keyboard.append([InlineKeyboardButton(
+                    f"🗑 {chat_info['name']}",
+                    callback_data=f"delete_{chat_id_key}"
+                )])
+        
+        if keyboard:
+            keyboard.append([InlineKeyboardButton("◀️ Назад", callback_data="back_to_chats")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await query.edit_message_text(
+                "🗑 *Выберите чат для удаления:*\n\nОсновной чат удалить нельзя.",
+                parse_mode="Markdown",
+                reply_markup=reply_markup
+            )
         else:
-            await q.edit_message_reply_markup(InlineKeyboardMarkup(kb))
-
-    elif data == "back":
-        cur = d["current"]
-        kb = [[InlineKeyboardButton(
-            ("✅ " if k == cur else "💬 ") + f"{c['name']} ({len(c['history'])} сообщ.)",
-            callback_data=f"sw_{k}"
-        )] for k, c in d["chats"].items()]
-        kb.append([
-            InlineKeyboardButton("➕ Новый", callback_data="new_chat"),
-            InlineKeyboardButton("🗑 Удалить", callback_data="del_menu")
+            await query.edit_message_text(
+                "❌ Нет чатов для удаления, кроме основного.",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("◀️ Назад", callback_data="back_to_chats")
+                ]])
+            )
+    
+    # Удаление конкретного чата
+    elif data.startswith("delete_"):
+        chat_key = data[7:]
+        if chat_key in data["chats"] and chat_key != "main":
+            chat_name = data["chats"][chat_key]["name"]
+            del data["chats"][chat_key]
+            
+            # Если удалили текущий чат, переключаемся на основной
+            if data["current"] == chat_key:
+                data["current"] = "main"
+            
+            save_data(data)
+            await query.edit_message_text(
+                f"🗑 Чат *{chat_name}* успешно удален!",
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text(
+                "❌ Нельзя удалить основной чат!"
+            )
+    
+    # Назад к списку чатов
+    elif data == "back_to_chats":
+        current = data["current"]
+        keyboard = []
+        for chat_id_key, chat_info in data["chats"].items():
+            mark = "✅ " if chat_id_key == current else "💬 "
+            button_text = f"{mark}{chat_info['name']} ({len(chat_info['history'])} сообщ.)"
+            keyboard.append([InlineKeyboardButton(button_text, callback_data=f"switch_{chat_id_key}")])
+        
+        keyboard.append([
+            InlineKeyboardButton("➕ Новый чат", callback_data="new_chat"),
+            InlineKeyboardButton("🗑 Удалить", callback_data="delete_menu")
         ])
-        await q.edit_message_reply_markup(InlineKeyboardMarkup(kb))
-
-    elif data.startswith("del_rem_"):
-        idx = int(data[8:])
-        rems = load_reminders()
-        my = [r for r in rems if r["chat_id"] == chat_id]
-        if idx < len(my):
-            rems.remove(my[idx])
-            save_reminders(rems)
-            await q.edit_message_text("🗑 Напоминание удалено!")
-
-    elif data.startswith("del_"):
-        key = data[4:]
-        if key in d["chats"] and key != "main":
-            name = d["chats"][key]["name"]
-            del d["chats"][key]
-            if d["current"] == key:
-                d["current"] = list(d["chats"].keys())[0]
-            save_data(d)
-            await q.edit_message_text(f"🗑 Чат *{name}* удалён!", parse_mode="Markdown")
-        elif key == "main":
-            await q.answer("❌ Основной чат нельзя удалить", show_alert=True)
-
-    elif data.startswith("tmpl_"):
-        idx = int(data[5:])
-        keys = list(TEMPLATES.keys())
-        if idx < len(keys):
-            k = keys[idx]
-            await q.edit_message_text(
-                f"📋 *{k}*\n\nСкопируй и допиши:\n\n`{TEMPLATES[k]}`",
-                parse_mode="Markdown"
-            )
-
-    elif data == "add_rem":
-        await q.edit_message_text(
-            "⏰ Напиши напоминание:\n\n"
-            "_напомни через 30 минут позвонить_\n"
-            "_напомни в 15:30 встреча_\n"
-            "_напомни завтра в 10:00 купить_",
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            "💬 *Ваши чаты:*\n\nВыберите чат для переключения:",
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+    
+    # Создание нового чата
+    elif data == "new_chat":
+        await query.edit_message_text(
+            "✏️ Введите название для нового чата:"
+        )
+        context.user_data["waiting_for"] = "new_chat_name"
+    
+    # Добавление напоминания
+    elif data == "add_reminder":
+        await query.edit_message_text(
+            "⏰ *Создание напоминания*\n\n"
+            "Напишите текст напоминания с указанием времени.\n\n"
+            "*Примеры:*\n"
+            "• _напомни через 30 минут позвонить маме_\n"
+            "• _напомни в 15:30 встреча с клиентом_\n"
+            "• _напомни завтра в 10:00 купить продукты_",
             parse_mode="Markdown"
         )
-        context.user_data["wait"] = "reminder"
-
-
-# ══════════════════════════════════════════
-#  ТЕКСТОВЫЕ СООБЩЕНИЯ
-# ══════════════════════════════════════════
-async def app_send(context, chat_id, text):
-    """Отправляет текст через context.bot частями"""
-    if len(text) <= 4096:
+        context.user_data["waiting_for"] = "reminder"
+    
+    # Удаление напоминания
+    elif data.startswith("delete_reminder_"):
         try:
-            await context.bot.send_message(chat_id, text, parse_mode="Markdown")
-        except Exception:
-            await context.bot.send_message(chat_id, text)
-        return
-    chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
-    for i, chunk in enumerate(chunks, 1):
+            idx = int(data[15:])
+            all_reminders = load_reminders()
+            user_reminders = [r for r in all_reminders if r["chat_id"] == chat_id]
+            
+            if idx < len(user_reminders):
+                reminder_to_delete = user_reminders[idx]
+                all_reminders.remove(reminder_to_delete)
+                save_reminders(all_reminders)
+                
+                await query.edit_message_text(
+                    f"🗑 Напоминание *{reminder_to_delete['text']}* удалено!",
+                    parse_mode="Markdown"
+                )
+            else:
+                await query.edit_message_text("❌ Напоминание не найдено.")
+        except Exception as e:
+            logger.error(f"Delete reminder error: {e}")
+            await query.edit_message_text("❌ Ошибка при удалении напоминания.")
+    
+    # Шаблон запроса
+    elif data.startswith("template_"):
         try:
-            await context.bot.send_message(chat_id, f"📄 *{i}/{len(chunks)}:*\n\n{chunk}", parse_mode="Markdown")
-        except Exception:
-            await context.bot.send_message(chat_id, chunk)
-        await asyncio.sleep(0.3)
+            idx = int(data[9:])
+            template_keys = list(TEMPLATES.keys())
+            if idx < len(template_keys):
+                key = template_keys[idx]
+                template_text = TEMPLATES[key]
+                await query.edit_message_text(
+                    f"📋 *{key}*\n\n"
+                    f"Скопируйте и дополните запрос:\n\n"
+                    f"`{template_text}`",
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Template error: {e}")
+            await query.edit_message_text("❌ Ошибка при загрузке шаблона.")
 
-async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# =============================================
+#  MESSAGE HANDLERS
+# =============================================
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик текстовых сообщений"""
     text = update.message.text
     chat_id = update.effective_chat.id
-
-    # Кнопки меню
-    menu = {
-        "💬 Новый чат":   cmd_new,
-        "📂 Мои чаты":    cmd_chats,
-        "📋 Шаблоны":     on_templates,
-        "🔍 Поиск":       cmd_search,
-        "⏰ Напоминания":  cmd_reminders,
-        "🧠 Память":       cmd_memory,
-        "📡 Статус AI":    cmd_status,
-        "❓ Помощь":       cmd_help,
-    }
-    if text in menu:
-        await menu[text](update, context)
+    
+    # Обработка кнопок главного меню
+    if text == "💬 Новый чат":
+        await new_chat_command(update, context)
         return
-
-    wait = context.user_data.get("wait")
-
-    if wait == "chat_name":
-        context.user_data.pop("wait")
-        d = load_data()
-        key = f"c{int(datetime.now().timestamp())}"
-        d["chats"][key] = {"name": text, "history": [], "created": datetime.now().strftime("%d.%m %H:%M")}
-        d["current"] = key
-        save_data(d)
+    elif text == "📂 Мои чаты":
+        await chats_command(update, context)
+        return
+    elif text == "📋 Шаблоны":
+        await templates_command(update, context)
+        return
+    elif text == "🔍 Поиск":
+        await search_command(update, context)
+        return
+    elif text == "⏰ Напоминания":
+        await reminders_command(update, context)
+        return
+    elif text == "🧠 Память":
+        await memory_command(update, context)
+        return
+    elif text == "📡 Статус AI":
+        await status_command(update, context)
+        return
+    elif text == "❓ Помощь":
+        await help_command(update, context)
+        return
+    
+    # Проверяем, ждем ли мы какой-то ввод
+    waiting_for = context.user_data.get("waiting_for")
+    
+    if waiting_for == "new_chat_name":
+        # Создаем новый чат
+        data = load_data()
+        chat_key = f"chat_{int(datetime.now().timestamp())}"
+        data["chats"][chat_key] = {
+            "name": text,
+            "history": [],
+            "created": datetime.now().strftime("%d.%m.%Y %H:%M")
+        }
+        data["current"] = chat_key
+        save_data(data)
+        
+        context.user_data.pop("waiting_for", None)
+        
         await update.message.reply_text(
-            f"✅ Новый чат: *{text}*", parse_mode="Markdown", reply_markup=main_kb()
+            f"✅ Создан новый чат: *{text}*",
+            parse_mode="Markdown",
+            reply_markup=main_keyboard()
         )
         return
-
-    if wait == "search":
-        context.user_data.pop("wait")
-        await update.message.reply_text("🌐 Ищу в интернете...")
-        found = await web_search(text)
-        await context.bot.send_message(chat_id, f"🌐 *Найдено:*\n\n{found[:3000]}", parse_mode="Markdown")
-        d = load_data()
-        answer, ai = await best_ai(
-            f"Кратко ответь на вопрос используя результаты поиска: {text}",
-            make_context(d) + f"\nРезультаты поиска:\n{found}"
+    
+    elif waiting_for == "web_search":
+        # Выполняем поиск
+        context.user_data.pop("waiting_for", None)
+        
+        search_msg = await update.message.reply_text("🌐 Ищу в интернете...")
+        
+        # Поиск в интернете
+        search_results = await search_web(text)
+        
+        # Отправляем результаты
+        await search_msg.edit_text(
+            f"🌐 *Результаты поиска:*\n\n{search_results[:3000]}",
+            parse_mode="Markdown"
         )
+        
+        # Дополнительно спрашиваем AI для краткого ответа
+        data = load_data()
+        system_context = build_context(data) + f"\n\nРезультаты поиска:\n{search_results}"
+        
+        thinking = await update.message.reply_text("🤔 Анализирую результаты...")
+        
+        answer, ai_name = await get_best_ai_response(
+            f"На основе результатов поиска дай краткий ответ на вопрос: {text}",
+            system_context
+        )
+        
         if answer:
-            await context.bot.send_message(chat_id, f"💡 *Итог ({ai}):*\n\n{answer[:3000]}", parse_mode="Markdown")
-        return
-
-    if wait == "reminder":
-        context.user_data.pop("wait")
-        t, txt = parse_time(text)
-        if t:
-            rems = load_reminders()
-            rems.append({"chat_id": chat_id, "text": txt, "time": t.isoformat()})
-            save_reminders(rems)
-            await update.message.reply_text(
-                f"⏰ Поставил!\n\n📝 {txt}\n🕐 {t.strftime('%d.%m в %H:%M')}",
-                reply_markup=main_kb()
+            await thinking.edit_text(
+                f"💡 *Ответ ({ai_name}):*\n\n{answer[:3000]}",
+                parse_mode="Markdown"
             )
         else:
-            await update.message.reply_text("❌ Не понял время. Пример: _напомни через 1 час сделать что-то_")
+            await thinking.delete()
+        
         return
-
-    # Напоминание из обычного сообщения
-    if any(w in text.lower() for w in ["напомни", "поставь напоминание"]):
-        t, txt = parse_time(text)
-        if t:
-            rems = load_reminders()
-            rems.append({"chat_id": chat_id, "text": txt, "time": t.isoformat()})
-            save_reminders(rems)
+    
+    elif waiting_for == "reminder":
+        # Создаем напоминание
+        context.user_data.pop("waiting_for", None)
+        
+        reminder_time, reminder_text = parse_reminder_time(text)
+        
+        if reminder_time:
+            reminders = load_reminders()
+            reminders.append({
+                "chat_id": chat_id,
+                "text": reminder_text,
+                "time": reminder_time.isoformat()
+            })
+            save_reminders(reminders)
+            
+            time_str = reminder_time.strftime("%d.%m.%Y в %H:%M")
             await update.message.reply_text(
-                f"⏰ Поставил!\n\n📝 {txt}\n🕐 {t.strftime('%d.%m в %H:%M')}",
-                reply_markup=main_kb()
+                f"⏰ *Напоминание установлено!*\n\n"
+                f"📝 {reminder_text}\n"
+                f"🕐 {time_str}",
+                parse_mode="Markdown",
+                reply_markup=main_keyboard()
+            )
+        else:
+            await update.message.reply_text(
+                "❌ Не удалось распознать время.\n\n"
+                "Используйте формат:\n"
+                "• _через 30 минут ..._\n"
+                "• _в 15:30 ..._\n"
+                "• _завтра в 10:00 ..._",
+                parse_mode="Markdown",
+                reply_markup=main_keyboard()
+            )
+        return
+    
+    # Обычное сообщение
+    # Проверяем, не напоминание ли это
+    if any(word in text.lower() for word in ["напомни", "напоминание"]):
+        reminder_time, reminder_text = parse_reminder_time(text)
+        if reminder_time:
+            reminders = load_reminders()
+            reminders.append({
+                "chat_id": chat_id,
+                "text": reminder_text,
+                "time": reminder_time.isoformat()
+            })
+            save_reminders(reminders)
+            
+            time_str = reminder_time.strftime("%d.%m.%Y в %H:%M")
+            await update.message.reply_text(
+                f"⏰ *Напоминание установлено!*\n\n"
+                f"📝 {reminder_text}\n"
+                f"🕐 {time_str}",
+                parse_mode="Markdown"
             )
             return
+    
+    # Основная обработка через AI
+    data = load_data()
+    
+    # Сообщаем, что начали работу
+    await update.message.reply_text("⚙️ Работаю... Это может занять до 30 секунд.")
+    
+    # Запускаем обработку в фоне
+    asyncio.create_task(process_message(
+        context.application,
+        chat_id,
+        text,
+        data,
+        update.message.message_id
+    ))
 
-    d = load_data()
-    asyncio.create_task(process(context.application, chat_id, text, d))
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик голосовых сообщений"""
+    chat_id = update.effective_chat.id
+    
+    voice_msg = await update.message.reply_text("🎤 Распознаю голосовое сообщение...")
+    
+    try:
+        # Получаем файл голосового сообщения
+        file = await context.bot.get_file(update.message.voice.file_id)
+        
+        # Скачиваем файл
+        async with httpx.AsyncClient() as client:
+            response = await client.get(file.file_path)
+            audio_data = response.content
+        
+        # Распознаем текст
+        transcribed_text = await transcribe_voice(audio_data)
+        
+        if transcribed_text:
+            await voice_msg.edit_text(
+                f"🎤 *Распознано:*\n\n{transcribed_text}",
+                parse_mode="Markdown"
+            )
+            
+            # Обрабатываем распознанный текст
+            data = load_data()
+            asyncio.create_task(process_message(
+                context.application,
+                chat_id,
+                transcribed_text,
+                data,
+                update.message.message_id
+            ))
+        else:
+            await voice_msg.edit_text("❌ Не удалось распознать голосовое сообщение.")
+            
+    except Exception as e:
+        logger.error(f"Voice processing error: {e}")
+        await voice_msg.edit_text(f"❌ Ошибка при обработке голоса: {e}")
 
-async def on_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    items = list(TEMPLATES.keys())
-    kb = []
-    for i in range(0, len(items), 2):
-        row = [InlineKeyboardButton(items[i], callback_data=f"tmpl_{i}")]
-        if i + 1 < len(items):
-            row.append(InlineKeyboardButton(items[i+1], callback_data=f"tmpl_{i+1}"))
-        kb.append(row)
-    await update.message.reply_text(
-        "📋 *Выбери шаблон:*", parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(kb)
-    )
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Обработчик фотографий"""
+    chat_id = update.effective_chat.id
+    caption = update.message.caption or "Опиши подробно что видишь на этом изображении."
+    
+    photo_msg = await update.message.reply_text("📸 Анализирую изображение...")
+    
+    try:
+        # Берем фото самого высокого качества
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        
+        # Скачиваем фото
+        async with httpx.AsyncClient() as client:
+            response = await client.get(file.file_path)
+            image_data = response.content
+        
+        # Анализируем через Gemini Vision
+        analysis = await analyze_image(image_data, caption)
+        
+        if analysis:
+            await photo_msg.edit_text(
+                f"📸 *Анализ изображения:*\n\n{analysis}",
+                parse_mode="Markdown"
+            )
+        else:
+            await photo_msg.edit_text("❌ Не удалось проанализировать изображение.")
+            
+    except Exception as e:
+        logger.error(f"Photo processing error: {e}")
+        await photo_msg.edit_text(f"❌ Ошибка при анализе фото: {e}")
 
-# ══════════════════════════════════════════
-#  ЗАПУСК
-# ══════════════════════════════════════════
-async def post_init(app):
-    asyncio.create_task(reminder_loop(app))
-    await app.bot.set_my_commands([
-        ("start",     "🚀 Главное меню"),
-        ("restart",   "🔄 Перезапустить бота"),
-        ("status",    "📡 Статус AI провайдеров"),
-        ("new",       "💬 Новый чат"),
-        ("chats",     "📂 Список чатов"),
-        ("search",    "🌐 Поиск в интернете"),
-        ("reminders", "⏰ Напоминания"),
-        ("memory",    "🧠 Память"),
-        ("clear",     "🗑 Очистить чат"),
-        ("help",      "❓ Помощь"),
-    ])
+# =============================================
+#  MESSAGE PROCESSING
+# =============================================
+async def process_message(
+    app: Application,
+    chat_id: int,
+    text: str,
+    data: Dict[str, Any],
+    reply_to_message_id: int = None
+) -> None:
+    """Обрабатывает сообщение и генерирует ответ через AI"""
+    
+    try:
+        # Сохраняем сообщение пользователя
+        add_message(data, "Пользователь", text)
+        
+        # Проверяем, нужно ли изучать тему
+        if any(word in text.lower() for word in ["изучи", "расскажи", "объясни", "что такое", "кто такой"]):
+            topic = text[:60]
+            if topic not in data["topics"]:
+                data["topics"].append(topic)
+        
+        # Строим контекст
+        system_context = build_context(data)
+        
+        # Определяем тип запроса
+        is_code = is_code_request(text)
+        is_search = is_search_request(text)
+        
+        result = None
+        ai_name = None
+        
+        if is_search:
+            # Поиск в интернете
+            search_results = await search_web(text)
+            if search_results and search_results != "По вашему запросу ничего не найдено.":
+                await app.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"🌐 *Результаты поиска:*\n\n{search_results[:3000]}",
+                    parse_mode="Markdown"
+                )
+            
+            # Получаем ответ AI с учетом результатов поиска
+            search_context = system_context + f"\n\nРезультаты поиска:\n{search_results}"
+            result, ai_name = await get_best_ai_response(
+                f"На основе результатов поиска дай ответ: {text}",
+                search_context
+            )
+        
+        elif is_code:
+            # Генерация кода
+            result, ai_name = await generate_code_smart(text, system_context)
+        
+        else:
+            # Обычный текстовый ответ
+            result, ai_name = await get_best_ai_response(text, system_context)
+        
+        if not result:
+            await app.bot.send_message(
+                chat_id=chat_id,
+                text="❌ Ни один AI провайдер не ответил. Попробуйте позже."
+            )
+            return
+        
+        # Сохраняем ответ
+        add_message(data, "Агент", result[:400])
+        
+        # Проверяем, есть ли код в ответе
+        code = extract_code_from_text(result)
+        
+        if code and len(code) > 100:
+            # Сохраняем код в память
+            data["last_code"] = code[:800]
+            save_data(data)
+            
+            # Определяем расширение
+            ext = detect_extension(text, code)
+            filename = f"code_{datetime.now().strftime('%H%M%S')}.{ext}"
+            
+            # Сохраняем код во временный файл
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(code)
+            
+            # Получаем информацию о файле
+            file_size = os.path.getsize(filename) / 1024  # в KB
+            line_count = len(code.splitlines())
+            
+            # Отправляем файл
+            with open(filename, "rb") as f:
+                await app.bot.send_document(
+                    chat_id=chat_id,
+                    document=f,
+                    filename=filename,
+                    caption=(
+                        f"📁 `{filename}`\n"
+                        f"📊 {file_size:.1f} KB • {line_count} строк\n"
+                        f"🤖 {ai_name}"
+                    )
+                )
+            
+            # Удаляем временный файл
+            os.remove(filename)
+            
+            # Отправляем объяснение, если оно есть
+            explanation = re.sub(r'```.*?```', '', result, flags=re.DOTALL).strip()
+            if explanation and len(explanation) > 50:
+                await send_long_message(
+                    app.bot,
+                    chat_id,
+                    f"✅ *Код готов!*\n\n{explanation}",
+                )
+        
+        else:
+            # Отправляем обычный текстовый ответ
+            header = f"✅ *Готово!* (_{ai_name}_)\n\n"
+            await send_long_message(
+                app.bot,
+                chat_id,
+                header + result
+            )
+        
+        # Сохраняем данные
+        save_data(data)
+        
+    except Exception as e:
+        logger.error(f"Process message error: {e}")
+        try:
+            await app.bot.send_message(
+                chat_id=chat_id,
+                text=f"❌ Произошла ошибка: {e}"
+            )
+        except:
+            pass
 
-def main():
-    app = Application.builder().token(TELEGRAM_TOKEN).post_init(post_init).build()
-    app.add_handler(CommandHandler("start",     cmd_start))
-    app.add_handler(CommandHandler("restart",   cmd_restart))
-    app.add_handler(CommandHandler("status",    cmd_status))
-    app.add_handler(CommandHandler("new",       cmd_new))
-    app.add_handler(CommandHandler("chats",     cmd_chats))
-    app.add_handler(CommandHandler("search",    cmd_search))
-    app.add_handler(CommandHandler("reminders", cmd_reminders))
-    app.add_handler(CommandHandler("memory",    cmd_memory))
-    app.add_handler(CommandHandler("clear",     cmd_clear))
-    app.add_handler(CommandHandler("help",      cmd_help))
-    app.add_handler(CallbackQueryHandler(on_button))
-    app.add_handler(MessageHandler(filters.VOICE, on_voice))
-    app.add_handler(MessageHandler(filters.PHOTO, on_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    logger.info("Бот запущен!")
-    app.run_polling(drop_pending_updates=True)
+# =============================================
+#  MAIN
+# =============================================
+async def post_init(application: Application) -> None:
+    """Действия после инициализации бота"""
+    # Устанавливаем команды меню
+    commands = [
+        BotCommand("start", "🚀 Главное меню"),
+        BotCommand("restart", "🔄 Перезапустить бота"),
+        BotCommand("status", "📡 Статус AI провайдеров"),
+        BotCommand("memory", "🧠 Память и история"),
+        BotCommand("clear", "🗑 Очистить чат"),
+        BotCommand("new", "💬 Новый чат"),
+        BotCommand("chats", "📂 Список чатов"),
+        BotCommand("search", "🌐 Поиск в интернете"),
+        BotCommand("reminders", "⏰ Напоминания"),
+        BotCommand("help", "❓ Помощь"),
+    ]
+    
+    await application.bot.set_my_commands(commands)
+    
+    # Запускаем фоновый цикл проверки напоминаний
+    asyncio.create_task(reminder_check_loop(application))
+    
+    logger.info("Бот успешно запущен!")
+
+def main() -> None:
+    """Главная функция запуска бота"""
+    
+    # Создаем приложение
+    application = Application.builder()\
+        .token(TELEGRAM_TOKEN)\
+        .post_init(post_init)\
+        .build()
+    
+    # Регистрируем обработчики команд
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("restart", restart_command))
+    application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("memory", memory_command))
+    application.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(CommandHandler("new", new_chat_command))
+    application.add_handler(CommandHandler("chats", chats_command))
+    application.add_handler(CommandHandler("search", search_command))
+    application.add_handler(CommandHandler("reminders", reminders_command))
+    application.add_handler(CommandHandler("help", help_command))
+    
+    # Регистрируем обработчик инлайн кнопок
+    application.add_handler(CallbackQueryHandler(button_callback))
+    
+    # Регистрируем обработчики сообщений
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    
+    # Запускаем бота
+    logger.info("Запуск бота...")
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
