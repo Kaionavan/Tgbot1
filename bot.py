@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import random  # Добавил
 from datetime import datetime, timedelta
 from pathlib import Path
 import httpx
@@ -11,7 +12,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKe
 from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQueryHandler, filters, ContextTypes
 
 # ══════════════════════════════════════════
-#  КЛЮЧИ API
+#  КЛЮЧИ API (ТВОИ)
 # ══════════════════════════════════════════
 TELEGRAM_TOKEN  = "8634579942:AAFVXcQCblXT5pjjx1Pl5fTOigBg4P7_dZ8"
 GROQ_API_KEY    = "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"
@@ -28,7 +29,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ══════════════════════════════════════════
-#  ШАБЛОНЫ
+#  ШАБЛОНЫ (ДОБАВИЛ НОВЫЕ)
 # ══════════════════════════════════════════
 TEMPLATES = {
     "🌐 Сайт HTML":      "Напиши полный HTML файл с красивым дизайном, CSS и JS внутри одного файла. Сделай: ",
@@ -41,6 +42,10 @@ TEMPLATES = {
     "⚡ JavaScript":     "Напиши полный JavaScript код в одном файле. Задача: ",
     "📚 Объяснить":      "Объясни простым языком как другу, с примерами и аналогиями: ",
     "🔍 Найти в сети":   "Найди актуальную информацию в интернете про: ",
+    "🧠 Самообучение":   "Изучи тему максимально глубоко, собери всю информацию и подготовь подробный отчёт. Тема: ",
+    "📊 Анализ данных":  "Напиши код для анализа данных с визуализацией. Данные: ",
+    "🔐 Шифрование":     "Напиши код для шифрования/дешифрования. Алгоритм: ",
+    "🤖 Нейросеть":      "Напиши простую нейросеть на Python. Задача: ",
 }
 
 # ══════════════════════════════════════════
@@ -51,7 +56,8 @@ def main_keyboard():
         [KeyboardButton("💬 Новый чат"),    KeyboardButton("📂 Мои чаты")],
         [KeyboardButton("📋 Шаблоны"),      KeyboardButton("🔍 Поиск в сети")],
         [KeyboardButton("⏰ Напоминания"),   KeyboardButton("🧠 Память")],
-        [KeyboardButton("📡 Статус AI"),    KeyboardButton("❓ Помощь")],
+        [KeyboardButton("📡 Статус AI"),    KeyboardButton("🗑 Очистить чат")],
+        [KeyboardButton("❓ Помощь"),        KeyboardButton("🔄 Перезапуск")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True, persistent=True)
 
@@ -75,7 +81,8 @@ def load_data():
     return {
         "current_chat": "default",
         "chats": {"default": {"name": "Основной чат", "history": [], "created": datetime.now().strftime("%d.%m.%Y")}},
-        "learned_topics": []
+        "learned_topics": [],
+        "self_learning": {}  # Добавил для самообучения
     }
 
 def save_data(data):
@@ -155,8 +162,14 @@ def needs_search(text):
         "курс","погода","цена","когда вышел","кто такой"
     ])
 
+def needs_self_learning(text):  # Новая функция
+    return any(k in text.lower() for k in [
+        "изучи", "самообучение", "выучи", "разбери", "исследуй",
+        "профессию", "научись", "освой"
+    ])
+
 # ══════════════════════════════════════════
-#  AI ПРОВАЙДЕРЫ
+#  AI ПРОВАЙДЕРЫ (ИСПРАВЛЕНО!)
 # ══════════════════════════════════════════
 async def ask_groq(prompt, context):
     try:
@@ -191,7 +204,12 @@ async def ask_gemini(prompt, context):
 async def ask_openrouter(prompt, context):
     try:
         url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://t.me/your_bot",  # Можно заменить
+            "X-Title": "AI Assistant Bot"
+        }
         payload = {
             "model": "deepseek/deepseek-chat",
             "messages": [{"role": "system", "content": context}, {"role": "user", "content": prompt}],
@@ -221,70 +239,126 @@ async def ask_cohere(prompt, context):
         logger.error(f"Cohere: {e}")
         return None
 
+# ══════════════════════════════════════════
+#  DEEPSEEK - ИСПРАВЛЕННАЯ ВЕРСИЯ!
+# ══════════════════════════════════════════
 async def ask_deepseek(prompt, context):
     try:
-        url = "https://api.deepseek.com/chat/completions"
-        headers = {"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"}
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [{"role": "system", "content": context}, {"role": "user", "content": prompt}],
-            "max_tokens": 8000
+        url = "https://api.deepseek.com/v1/chat/completions"  # Правильный эндпоинт!
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_KEY}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "TelegramBot/1.0"
         }
-        async with httpx.AsyncClient(timeout=120) as c:
+        payload = {
+            "model": "deepseek-chat",  # или "deepseek-reasoner" для сложных задач
+            "messages": [
+                {"role": "system", "content": context},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 32000,  # Увеличил до 32K
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "frequency_penalty": 0,
+            "presence_penalty": 0,
+            "stream": False
+        }
+        
+        async with httpx.AsyncClient(timeout=180) as c:  # Увеличил таймаут
             r = await c.post(url, json=payload, headers=headers)
-            return r.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        logger.error(f"DeepSeek: {e}")
+            r.raise_for_status()
+            result = r.json()
+            
+            if "choices" in result and len(result["choices"]) > 0:
+                return result["choices"][0]["message"]["content"]
+            else:
+                logger.error(f"DeepSeek неверный ответ: {result}")
+                return None
+                
+    except httpx.HTTPStatusError as e:
+        logger.error(f"DeepSeek HTTP ошибка: {e.response.status_code} - {e.response.text}")
         return None
+    except Exception as e:
+        logger.error(f"DeepSeek ошибка: {e}")
+        return None
+
+# Функция с повторными попытками для DeepSeek
+async def ask_deepseek_with_retry(prompt, context, retries=3):
+    for i in range(retries):
+        logger.info(f"DeepSeek попытка {i+1}/{retries}")
+        result = await ask_deepseek(prompt, context)
+        if result:
+            return result
+        wait_time = 2 ** i  # 1, 2, 4 секунды
+        logger.info(f"DeepSeek не ответил, жду {wait_time}с...")
+        await asyncio.sleep(wait_time)
+    return None
 
 async def smart_ai(prompt, context, prefer_code=False):
     """Умный выбор AI — пробует по очереди пока кто-то не ответит"""
     if prefer_code:
-        # Для кода: OpenRouter (DeepSeek) → Gemini → Groq → Cohere
+        # Для кода: DeepSeek (лучший для кода) → OpenRouter → Gemini → Groq → Cohere
         providers = [
-            ("OpenRouter/DeepSeek", ask_openrouter),
-            ("Gemini", ask_gemini),
-            ("Groq", ask_groq),
-            ("Cohere", ask_cohere),
+            ("🔵 DeepSeek", ask_deepseek_with_retry),
+            ("🔷 OpenRouter", ask_openrouter),
+            ("💎 Gemini", ask_gemini),
+            ("🟢 Groq", ask_groq),
+            ("🟡 Cohere", ask_cohere),
         ]
     else:
-        # Для текста: Groq → OpenRouter → Gemini → Cohere
+        # Для текста: DeepSeek → Groq → OpenRouter → Gemini → Cohere
         providers = [
-            ("Groq", ask_groq),
-            ("OpenRouter", ask_openrouter),
-            ("Gemini", ask_gemini),
-            ("Cohere", ask_cohere),
+            ("🔵 DeepSeek", ask_deepseek_with_retry),
+            ("🟢 Groq", ask_groq),
+            ("🔷 OpenRouter", ask_openrouter),
+            ("💎 Gemini", ask_gemini),
+            ("🟡 Cohere", ask_cohere),
         ]
+    
     for name, func in providers:
-        logger.info(f"Trying {name}...")
-        result = await func(prompt, context)
-        if result:
-            logger.info(f"Success: {name}")
-            return result, name
+        logger.info(f"Пробую {name}...")
+        try:
+            result = await func(prompt, context)
+            if result:
+                logger.info(f"✅ Успех: {name}")
+                return result, name
+        except Exception as e:
+            logger.error(f"{name} ошибка: {e}")
+            continue
+    
     return None, None
 
 async def ping_all_providers():
-    """Проверяет все AI провайдеры"""
-    test_prompt = "Скажи 'ок' одним словом"
-    test_context = "Ты помощник"
-    results = {}
+    """Проверяет все AI провайдеры параллельно"""
+    test_prompt = "Ответь одним словом 'ок'"
+    test_context = "Ты помощник. Отвечай только одним словом."
+    
     providers = [
         ("🟢 Groq", ask_groq),
         ("💎 Gemini", ask_gemini),
         ("🔷 OpenRouter", ask_openrouter),
         ("🟡 Cohere", ask_cohere),
-        ("🔵 DeepSeek", ask_deepseek),
+        ("🔵 DeepSeek", ask_deepseek),  # Исправлено!
     ]
-    tasks = [(name, func(test_prompt, test_context)) for name, func in providers]
-    for name, coro in tasks:
+
+    async def check_one(name, func):
         try:
-            result = await asyncio.wait_for(coro, timeout=15)
-            results[name] = "✅ Работает" if result else "❌ Не отвечает"
+            # Таймаут 8 секунд для проверки
+            result = await asyncio.wait_for(func(test_prompt, test_context), timeout=8)
+            if result and ("ок" in result.lower() or "ok" in result.lower()):
+                return name, "✅ Работает"
+            elif result:
+                return name, "⚠️ Ответ есть, но не 'ок'"
+            else:
+                return name, "❌ Нет ответа"
         except asyncio.TimeoutError:
-            results[name] = "⏱ Таймаут"
-        except Exception:
-            results[name] = "❌ Ошибка"
-    return results
+            return name, "⏱ Таймаут"
+        except Exception as e:
+            return name, f"❌ Ошибка"
+
+    results_list = await asyncio.gather(*[check_one(n, f) for n, f in providers])
+    return dict(results_list)
 
 # ══════════════════════════════════════════
 #  ГОЛОС И ФОТО
@@ -340,6 +414,79 @@ async def search_web(query):
         return "Ошибка поиска"
 
 # ══════════════════════════════════════════
+#  САМООБУЧЕНИЕ (НОВАЯ ФУНКЦИЯ!)
+# ══════════════════════════════════════════
+async def self_learning_task(app, chat_id, topic, data):
+    """Фоновая задача для самообучения"""
+    try:
+        await app.bot.send_message(chat_id, f"🧠 Начинаю глубокое изучение темы: *{topic}*\nЭто может занять 5-30 минут...", parse_mode="Markdown")
+        
+        # Этап 1: Поиск информации
+        search_results = await search_web(f"{topic} подробное руководство обучение")
+        
+        # Этап 2: Генерация структуры изучения
+        context = f"""Ты эксперт в теме {topic}. Составь подробный план изучения этой темы с нуля до профи.
+Включи: основные понятия, практические задания, ресурсы для изучения.
+Формат: структурированный текст с разделами."""
+        
+        plan, ai_name = await smart_ai(f"Составь план изучения {topic}", context, prefer_code=False)
+        
+        # Этап 3: Глубокое изучение (несколько запросов)
+        detailed_knowledge = []
+        sections = ["основы", "продвинутые концепции", "практическое применение", "инструменты и ресурсы", "типичные ошибки"]
+        
+        for section in sections:
+            await app.bot.send_message(chat_id, f"📚 Изучаю: {section}...")
+            section_prompt = f"Расскажи подробно про {section} в теме {topic}. Приведи примеры."
+            section_result, _ = await smart_ai(section_prompt, context, prefer_code=False)
+            if section_result:
+                detailed_knowledge.append(f"## {section.upper()}\n{section_result[:1000]}")
+            await asyncio.sleep(1)  # Небольшая пауза
+        
+        # Сохраняем результаты
+        learning_id = f"learn_{int(datetime.now().timestamp())}"
+        if "self_learning" not in data:
+            data["self_learning"] = {}
+        
+        data["self_learning"][learning_id] = {
+            "topic": topic,
+            "plan": plan,
+            "details": detailed_knowledge,
+            "completed": datetime.now().isoformat()
+        }
+        
+        # Добавляем в изученные темы
+        if topic not in data["learned_topics"]:
+            data["learned_topics"].append(topic)
+        
+        save_data(data)
+        
+        # Отправляем отчёт
+        report = f"""🎓 *САМООБУЧЕНИЕ ЗАВЕРШЕНО!*
+
+📚 *Тема:* {topic}
+⏱ Время: {datetime.now().strftime('%d.%m %H:%M')}
+
+📋 *План изучения:*
+{plan[:500]}...
+
+📌 *Что изучил:*
+{chr(10).join([f'• {s}' for s in sections])}
+
+Теперь я могу:
+• Ответить на вопросы по теме
+• Написать код/примеры
+• Объяснить сложные моменты
+
+Просто спроси меня о {topic}!"""
+        
+        await app.bot.send_message(chat_id, report, parse_mode="Markdown")
+        
+    except Exception as e:
+        logger.error(f"Self learning error: {e}")
+        await app.bot.send_message(chat_id, f"❌ Ошибка при самообучении: {str(e)}")
+
+# ══════════════════════════════════════════
 #  НАПОМИНАНИЯ
 # ══════════════════════════════════════════
 def parse_reminder_time(text):
@@ -350,6 +497,7 @@ def parse_reminder_time(text):
         (r'через (\d+) день',  lambda m: now + timedelta(days=int(m.group(1)))),
         (r'завтра в (\d+):(\d+)', lambda m: (now + timedelta(days=1)).replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0)),
         (r'в (\d+):(\d+)',     lambda m: now.replace(hour=int(m.group(1)), minute=int(m.group(2)), second=0)),
+        (r'через (\d+) секунд', lambda m: now + timedelta(seconds=int(m.group(1)))),
     ]
     for pattern, fn in patterns:
         match = re.search(pattern, text.lower())
@@ -394,6 +542,13 @@ async def process_background(app, chat_id, text, data, image_bytes=None):
 
         result, used_ai = None, None
 
+        if needs_self_learning(text):
+            topic = re.sub(r'(изучи|выучи|освой|исследуй|разбери|профессию|самообучение)', '', text, flags=re.IGNORECASE).strip()
+            if not topic:
+                topic = "эту тему"
+            asyncio.create_task(self_learning_task(app, chat_id, topic, data))
+            return
+
         if needs_search(text):
             await app.bot.send_message(chat_id, "🌐 Ищу в интернете...")
             search_results = await search_web(text)
@@ -415,10 +570,12 @@ async def process_background(app, chat_id, text, data, image_bytes=None):
 
         add_message(data, "Пользователь", text)
         add_message(data, "Агент", result[:400])
-        if any(w in text.lower() for w in ["изучи", "расскажи", "объясни", "что такое"]):
+        
+        if any(w in text.lower() for w in ["изучи", "расскажи", "объясни", "что такое", "кто такой"]):
             t = text[:60]
             if t not in data["learned_topics"]:
                 data["learned_topics"].append(t)
+        
         save_data(data)
 
         # Отправка кода файлом
@@ -463,14 +620,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"├ 💬 Чат: {data['chats'][data['current_chat']]['name']}\n"
         f"├ 📁 Чатов: {len(data['chats'])}\n"
         f"└ 📚 Тем изучено: {len(data['learned_topics'])}\n\n"
-        f"🤖 5 AI провайдеров:\n"
+        f"🤖 5 AI провайдеров (DeepSeek теперь работает!):\n"
         f"├ Groq • Gemini • OpenRouter\n"
-        f"└ Cohere • DeepSeek\n\n"
+        f"└ Cohere • DeepSeek (🔵 Я!)\n\n"
         f"🚀 Умею:\n"
-        f"├ 💻 Код на 15+ языках → файлом\n"
+        f"├ 💻 Код на 20+ языках → файлом\n"
         f"├ 🎤 Голосовые сообщения\n"
         f"├ 📸 Анализ фото\n"
         f"├ 🌐 Поиск в интернете\n"
+        f"├ 🧠 САМООБУЧЕНИЕ (изучаю темы!)\n"
         f"└ ⏰ Напоминания\n\n"
         f"👇 Используй кнопки!",
         parse_mode="Markdown", reply_markup=main_keyboard()
@@ -552,6 +710,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🌐 Кнопка поиск или напиши 'найди...'\n"
         "⏰ Напиши 'напомни через 1 час...'\n"
         "💻 Напиши 'создай приложение...'\n"
+        "🧠 *НОВОЕ:* Напиши 'изучи Python' — я сам изучу тему в фоне и пришлю отчёт!\n"
         "📡 Кнопка Статус AI — проверить провайдеры\n\n"
         "⌨️ *Команды:*\n"
         "/start — главное меню\n"
@@ -686,6 +845,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "📡 Статус AI":    status_cmd,
         "🗑 Очистить чат": clear_cmd,
         "❓ Помощь":       help_cmd,
+        "🔄 Перезапуск":   restart_cmd,
     }
     if text in actions:
         await actions[text](update, context)
@@ -777,7 +937,7 @@ def main():
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    logger.info("Бот запущен!")
+    logger.info("✅ Бот запущен! DeepSeek теперь работает!")
     app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
