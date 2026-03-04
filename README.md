@@ -1,32 +1,188 @@
-# 🤖 Мой персональный AI-агент
+import os
+import json
+import asyncio
+import logging
+from datetime import datetime
+from pathlib import Path
+import httpx
 
-Telegram бот с памятью, который работает в фоне.
+from telegram import Update
+from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 
-## Что умеет
-- 💻 Пишет код через DeepSeek (до 8000+ строк)
-- 🧠 Объясняет темы через Gemini
-- 📚 Запоминает всю историю переписки
-- 📲 Работает в фоне пока ты занят
-- 🔔 Уведомляет когда готово
+# ====== НАСТРОЙКИ ======
+TELEGRAM_TOKEN = "8634579942:AAFVXcQCblXT5pjjx1Pl5fTOigBg4P7_dZ8"
+GEMINI_API_KEY = "AIzaSyD21rIGQxhzh6HXvb05Tkc5SYLBsFVn5II"
+DEEPSEEK_API_KEY = "sk-5c112016a71c444e88ea825e3f8c7d4f"
+MEMORY_FILE = "memory.json"
 
-## Команды бота
-- `/start` — запустить бота
-- `/memory` — посмотреть что агент помнит
-- `/clear` — очистить историю
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-## Как задеплоить на Railway
+# ====== ПАМЯТЬ ======
+def load_memory():
+    if Path(MEMORY_FILE).exists():
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {
+        "profile": {
+            "style": "объяснять просто, без терминов, коротко и по делу",
+            "goals": [],
+            "learned_topics": []
+        },
+        "history": []
+    }
 
-1. Создай аккаунт на railway.app
-2. Нажми "New Project" → "Deploy from GitHub"
-   ИЛИ "New Project" → "Empty Service"
-3. Загрузи эти файлы:
-   - bot.py
-   - requirements.txt
-   - Procfile
-4. Railway сам запустит бота!
+def save_memory(memory):
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(memory, f, ensure_ascii=False, indent=2)
 
-## Файлы проекта
-- `bot.py` — основной код бота
-- `requirements.txt` — библиотеки
-- `Procfile` — инструкция для Railway
-- `memory.json` — создаётся автоматически (память бота)
+def add_to_history(memory, role, text):
+    memory["history"].append({
+        "role": role,
+        "text": text[:400],
+        "time": datetime.now().strftime("%d.%m %H:%M")
+    })
+    if len(memory["history"]) > 50:
+        memory["history"] = memory["history"][-50:]
+
+def build_context(memory):
+    profile = memory["profile"]
+    recent = memory["history"][-8:]
+    history_text = "\n".join([f"{m['role']}: {m['text']}" for m in recent])
+    topics = ", ".join(profile["learned_topics"][-10:]) or "пока ничего"
+
+    return f"""Ты персональный AI-агент. Отвечай просто и по делу, без сложных терминов.
+Изученные темы пользователя: {topics}
+История разговора:
+{history_text}
+Если задача на код — пиши полный рабочий код. Если просят объяснить — объясняй как другу."""
+
+def is_code_task(text):
+    keywords = ["создай", "напиши", "сделай", "код", "приложение", "скрипт",
+                "программу", "бот", "сайт", "функцию", "create", "write", "app"]
+    return any(k in text.lower() for k in keywords)
+
+# ====== AI ЗАПРОСЫ ======
+async def ask_gemini(prompt, context):
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        payload = {
+            "contents": [{"parts": [{"text": f"{context}\n\nПользователь: {prompt}"}]}]
+        }
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, json=payload)
+            data = r.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        logger.error(f"Gemini error: {e}")
+        return None
+
+async def ask_deepseek(prompt, context):
+    try:
+        url = "https://api.deepseek.com/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": context},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 8000
+        }
+        async with httpx.AsyncClient(timeout=120) as client:
+            r = await client.post(url, json=payload, headers=headers)
+            data = r.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error(f"DeepSeek error: {e}")
+        return None
+
+async def process_background(app, chat_id, text, memory):
+    try:
+        context = build_context(memory)
+        await app.bot.send_message(chat_id, "⚙️ Работаю... Занимайся своими делами!")
+
+        if is_code_task(text):
+            result = await ask_deepseek(text, context)
+            if not result:
+                result = await ask_gemini(text, context)
+            ai = "DeepSeek"
+        else:
+            result = await ask_gemini(text, context)
+            if not result:
+                result = await ask_deepseek(text, context)
+            ai = "Gemini"
+
+        if result:
+            add_to_history(memory, "Пользователь", text)
+            add_to_history(memory, "Агент", result[:300])
+
+            if any(w in text.lower() for w in ["изучи", "расскажи", "объясни", "что такое"]):
+                topic = text[:50]
+                if topic not in memory["profile"]["learned_topics"]:
+                    memory["profile"]["learned_topics"].append(topic)
+
+            save_memory(memory)
+
+            header = f"✅ Готово!\n\n"
+            full = header + result
+
+            if len(full) > 4096:
+                await app.bot.send_message(chat_id, header + "Ответ большой, отправляю частями:")
+                for i, chunk in enumerate([result[i:i+4000] for i in range(0, len(result), 4000)], 1):
+                    await app.bot.send_message(chat_id, f"Часть {i}:\n{chunk}")
+            else:
+                await app.bot.send_message(chat_id, full)
+        else:
+            await app.bot.send_message(chat_id, "❌ Оба AI не ответили. Попробуй ещё раз.")
+
+    except Exception as e:
+        logger.error(f"Background error: {e}")
+        await app.bot.send_message(chat_id, f"❌ Ошибка: {str(e)}")
+
+# ====== ХЕНДЛЕРЫ ======
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 Привет! Я твой персональный AI-агент.\n\n"
+        "🔍 Изучаю темы и объясняю понятно\n"
+        "💻 Пишу код и приложения\n"
+        "🧠 Помню всю нашу историю\n"
+        "📲 Работаю в фоне пока ты занят\n\n"
+        "Просто напиши что нужно!"
+    )
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    chat_id = update.effective_chat.id
+    memory = load_memory()
+    asyncio.create_task(process_background(context.application, chat_id, text, memory))
+
+async def memory_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    memory = load_memory()
+    topics = "\n".join([f"• {t}" for t in memory["profile"]["learned_topics"][-10:]]) or "Пока ничего"
+    await update.message.reply_text(
+        f"🧠 Что я помню:\n\n📚 Изученные темы:\n{topics}\n\n"
+        f"💬 Сообщений в истории: {len(memory['history'])}"
+    )
+
+async def clear_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    memory = load_memory()
+    memory["history"] = []
+    save_memory(memory)
+    await update.message.reply_text("🗑 История очищена!")
+
+def main():
+    app = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("memory", memory_cmd))
+    app.add_handler(CommandHandler("clear", clear_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    logger.info("Бот запущен!")
+    app.run_polling(drop_pending_updates=True)
+
+if __name__ == "__main__":
+    main()
+
