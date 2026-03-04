@@ -1,4 +1,3 @@
-import os
 import json
 import asyncio
 import logging
@@ -11,7 +10,6 @@ from telegram.ext import Application, MessageHandler, CommandHandler, filters, C
 
 # ====== НАСТРОЙКИ ======
 TELEGRAM_TOKEN = "8634579942:AAFVXcQCblXT5pjjx1Pl5fTOigBg4P7_dZ8"
-GEMINI_API_KEY = "AIzaSyD21rIGQxhzh6HXvb05Tkc5SYLBsFVn5II"
 DEEPSEEK_API_KEY = "sk-5c112016a71c444e88ea825e3f8c7d4f"
 MEMORY_FILE = "memory.json"
 
@@ -26,7 +24,6 @@ def load_memory():
     return {
         "profile": {
             "style": "объяснять просто, без терминов, коротко и по делу",
-            "goals": [],
             "learned_topics": []
         },
         "history": []
@@ -46,36 +43,14 @@ def add_to_history(memory, role, text):
         memory["history"] = memory["history"][-50:]
 
 def build_context(memory):
-    profile = memory["profile"]
     recent = memory["history"][-8:]
     history_text = "\n".join([f"{m['role']}: {m['text']}" for m in recent])
-    topics = ", ".join(profile["learned_topics"][-10:]) or "пока ничего"
-
+    topics = ", ".join(memory["profile"]["learned_topics"][-10:]) or "пока ничего"
     return f"""Ты персональный AI-агент. Отвечай просто и по делу, без сложных терминов.
 Изученные темы пользователя: {topics}
 История разговора:
 {history_text}
-Если задача на код — пиши полный рабочий код. Если просят объяснить — объясняй как другу."""
-
-def is_code_task(text):
-    keywords = ["создай", "напиши", "сделай", "код", "приложение", "скрипт",
-                "программу", "бот", "сайт", "функцию", "create", "write", "app"]
-    return any(k in text.lower() for k in keywords)
-
-# ====== AI ЗАПРОСЫ ======
-async def ask_gemini(prompt, context):
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
-        payload = {
-            "contents": [{"parts": [{"text": f"{context}\n\nПользователь: {prompt}"}]}]
-        }
-        async with httpx.AsyncClient(timeout=60) as client:
-            r = await client.post(url, json=payload)
-            data = r.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-    except Exception as e:
-        logger.error(f"Gemini error: {e}")
-        return None
+Если задача на код — пиши полный рабочий код. Если просят объяснить — объясняй как другу с примерами."""
 
 async def ask_deepseek(prompt, context):
     try:
@@ -95,6 +70,7 @@ async def ask_deepseek(prompt, context):
         async with httpx.AsyncClient(timeout=120) as client:
             r = await client.post(url, json=payload, headers=headers)
             data = r.json()
+            logger.info(f"DeepSeek response: {str(data)[:200]}")
             return data["choices"][0]["message"]["content"]
     except Exception as e:
         logger.error(f"DeepSeek error: {e}")
@@ -105,16 +81,7 @@ async def process_background(app, chat_id, text, memory):
         context = build_context(memory)
         await app.bot.send_message(chat_id, "⚙️ Работаю... Занимайся своими делами!")
 
-        if is_code_task(text):
-            result = await ask_deepseek(text, context)
-            if not result:
-                result = await ask_gemini(text, context)
-            ai = "DeepSeek"
-        else:
-            result = await ask_gemini(text, context)
-            if not result:
-                result = await ask_deepseek(text, context)
-            ai = "Gemini"
+        result = await ask_deepseek(text, context)
 
         if result:
             add_to_history(memory, "Пользователь", text)
@@ -127,23 +94,22 @@ async def process_background(app, chat_id, text, memory):
 
             save_memory(memory)
 
-            header = f"✅ Готово!\n\n"
+            header = "✅ Готово!\n\n"
             full = header + result
 
             if len(full) > 4096:
-                await app.bot.send_message(chat_id, header + "Ответ большой, отправляю частями:")
+                await app.bot.send_message(chat_id, "✅ Готово! Ответ большой, отправляю частями:")
                 for i, chunk in enumerate([result[i:i+4000] for i in range(0, len(result), 4000)], 1):
                     await app.bot.send_message(chat_id, f"Часть {i}:\n{chunk}")
             else:
                 await app.bot.send_message(chat_id, full)
         else:
-            await app.bot.send_message(chat_id, "❌ Оба AI не ответили. Попробуй ещё раз.")
+            await app.bot.send_message(chat_id, "❌ DeepSeek не ответил. Попробуй ещё раз через минуту.")
 
     except Exception as e:
         logger.error(f"Background error: {e}")
         await app.bot.send_message(chat_id, f"❌ Ошибка: {str(e)}")
 
-# ====== ХЕНДЛЕРЫ ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Привет! Я твой персональный AI-агент.\n\n"
@@ -185,4 +151,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
