@@ -7,7 +7,7 @@ from pathlib import Path
 
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
-import google.generativeai as genai
+from google import genai as genai_client
 from openai import OpenAI
 
 # ====== НАСТРОЙКИ ======
@@ -21,8 +21,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ====== ИНИЦИАЛИЗАЦИЯ AI ======
-genai.configure(api_key=GEMINI_API_KEY)
-gemini = genai.GenerativeModel("gemini-2.0-flash")
+gemini = genai_client.Client(api_key=GEMINI_API_KEY)
 
 deepseek = OpenAI(
     api_key=DEEPSEEK_API_KEY,
@@ -97,7 +96,10 @@ def is_code_task(text):
 async def ask_gemini(prompt, context):
     try:
         full_prompt = f"{context}\n\nПользователь: {prompt}"
-        response = gemini.generate_content(full_prompt)
+        response = gemini.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=full_prompt
+        )
         return response.text
     except Exception as e:
         logger.error(f"Gemini error: {e}")
