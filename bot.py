@@ -15,13 +15,16 @@ from telegram.ext import Application, MessageHandler, CommandHandler, CallbackQu
 # =============================================
 #  API KEYS
 # =============================================
-TELEGRAM_TOKEN = "8634579942:AAFVXcQCblXT5pjjx1Pl5fTOigBg4P7_dZ8"
-GROQ_KEY = "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"
-GEMINI_KEY = "AIzaSyD21rIGQxhzh6HXvb05Tkc5SYLBsFVn5II"
-DEEPSEEK_KEY = "sk-5c112016a71c444e88ea825e3f8c7d4f"
-COHERE_KEY = "UwiOG7P74hXPKzrSK4rk2P2xaRxw2Bc9R3PhXmT2"
-OPENROUTER_KEY = "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"
-SERPER_KEY = "2def7b1526652c4af691804cd8ed41231666d0be"
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GROQ_KEY = os.getenv("GROQ_API_KEY", "")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
+DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+COHERE_KEY = os.getenv("COHERE_API_KEY", "")
+OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY", "")
+SERPER_KEY = os.getenv("SERPER_API_KEY", "")
+
+if not TELEGRAM_TOKEN:
+    raise RuntimeError("TELEGRAM_TOKEN не задан!")
 
 # =============================================
 #  FILES
