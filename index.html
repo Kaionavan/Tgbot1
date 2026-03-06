@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AI Агент</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;600&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#080810; --surface:#0f0f1a; --card:#141424; --border:#1f1f35;
+  --accent:#6c5ce7; --accent2:#a855f7; --green:#00d4aa; --red:#ff4757;
+  --text:#e8e8f5; --muted:#4a4a6a;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{font-family:'JetBrains Mono',monospace;background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh}
+body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 60% 40% at 20% 0%,rgba(108,92,231,.08) 0%,transparent 60%),radial-gradient(ellipse 50% 30% at 80% 100%,rgba(168,85,247,.06) 0%,transparent 60%);pointer-events:none;z-index:0}
+
+/* HEADER */
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:10}
+.hdr-l{display:flex;align-items:center;gap:10px}
+.logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;font-family:'Unbounded',sans-serif;font-size:12px;font-weight:600}
+.title{font-family:'Unbounded',sans-serif;font-size:13px;letter-spacing:.05em}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.hdr-r{display:flex;align-items:center;gap:10px}
+.badge{padding:3px 10px;border-radius:20px;border:1px solid var(--accent);font-size:9px;font-family:'Unbounded',sans-serif;color:var(--accent);letter-spacing:.1em}
+.sw-wrap{display:flex;align-items:center;gap:6px;cursor:pointer}
+.sw-lbl{font-size:9px;letter-spacing:.08em;color:var(--muted);font-family:'Unbounded',sans-serif}
+.sw{width:32px;height:18px;border-radius:9px;background:var(--accent);position:relative;transition:background .2s}
+.sw::after{content:'';position:absolute;top:2px;right:2px;width:14px;height:14px;border-radius:50%;background:white;transition:right .2s}
+.sw.off{background:var(--border)}.sw.off::after{right:16px}
+
+/* TABS */
+.tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:9}
+.tab{flex:1;padding:11px 4px;text-align:center;font-family:'Unbounded',sans-serif;font-size:10px;letter-spacing:.06em;color:var(--muted);cursor:pointer;border:none;background:none;border-bottom:2px solid transparent;transition:all .2s}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* PAGES */
+.page{display:none;flex:1;flex-direction:column;overflow:hidden;min-height:0}
+.page.active{display:flex}
+
+/* ── АГЕНТ ── */
+.chat{flex:1;overflow-y:auto;padding:14px 14px 8px;display:flex;flex-direction:column;gap:10px;position:relative;z-index:1}
+.msg{max-width:82%;padding:10px 14px;border-radius:14px;font-size:13px;line-height:1.55;word-break:break-word;animation:fadeUp .2s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msg.user{background:linear-gradient(135deg,var(--accent),var(--accent2));align-self:flex-end;border-radius:14px 14px 4px 14px}
+.msg.bot{background:var(--card);border:1px solid var(--border);align-self:flex-start;border-radius:14px 14px 14px 4px}
+.msg.bot.speaking{border-color:var(--green);box-shadow:0 0 12px rgba(0,212,170,.3)}
+.msg-lbl{font-size:9px;color:var(--muted);letter-spacing:.08em;margin-bottom:4px;font-family:'Unbounded',sans-serif}
+.typing{display:flex;gap:5px;padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:14px 14px 14px 4px;align-self:flex-start}
+.typing span{width:6px;height:6px;border-radius:50%;background:var(--muted);animation:blink 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.2s}.typing span:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+
+.controls{flex-shrink:0;background:var(--surface);border-top:1px solid var(--border);padding:14px 16px 18px;display:flex;flex-direction:column;align-items:center;gap:10px;position:relative;z-index:5}
+
+/* WAVE */
+.wave{display:none;gap:3px;align-items:center;height:20px}
+.wave.show{display:flex}
+.wb{width:3px;border-radius:2px;background:var(--accent);animation:wav .8s ease-in-out infinite}
+.wb:nth-child(1){height:6px;animation-delay:0s}.wb:nth-child(2){height:12px;animation-delay:.1s}
+.wb:nth-child(3){height:18px;animation-delay:.2s}.wb:nth-child(4){height:12px;animation-delay:.3s}
+.wb:nth-child(5){height:18px;animation-delay:.4s}.wb:nth-child(6){height:12px;animation-delay:.5s}
+.wb:nth-child(7){height:6px;animation-delay:.6s}.wb:nth-child(8){height:10px;animation-delay:.7s}
+@keyframes wav{0%,100%{transform:scaleY(1)}50%{transform:scaleY(1.6)}}
+
+/* ORB */
+.orb-wrap{position:relative;width:90px;height:90px;display:flex;align-items:center;justify-content:center}
+.ring{position:absolute;inset:-8px;border-radius:50%;border:1.5px solid transparent;border-top-color:var(--accent);border-right-color:var(--accent2);animation:spin 3s linear infinite}
+.ring:nth-child(2){inset:-14px;animation-duration:5s;animation-direction:reverse;opacity:.5}
+@keyframes spin{to{transform:rotate(360deg)}}
+.orb{width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s,box-shadow .15s;box-shadow:0 0 20px rgba(108,92,231,.4);position:relative;z-index:1}
+.orb:active{transform:scale(.92)}
+.orb svg{width:30px;height:30px;fill:white}
+.orb.rec{background:linear-gradient(135deg,var(--red),#ff6b81);box-shadow:0 0 24px rgba(255,71,87,.5)}
+.orb.proc{animation:orbPulse 1s ease-in-out infinite}
+.orb.speak{background:linear-gradient(135deg,var(--green),#00b894);box-shadow:0 0 24px rgba(0,212,170,.5)}
+@keyframes orbPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+
+.hint{font-size:10px;letter-spacing:.1em;color:var(--muted);font-family:'Unbounded',sans-serif}
+.cont-btn{padding:6px 20px;border-radius:20px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:white;font-size:9px;cursor:pointer;font-family:'Unbounded',sans-serif;letter-spacing:.1em;opacity:.8;transition:all .2s}
+.cont-btn.on{background:linear-gradient(135deg,var(--red),#ff6b81);opacity:1}
+.inp-row{display:flex;gap:8px;width:100%}
+textarea{flex:1;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 14px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;resize:none;min-height:40px;max-height:80px;outline:none;transition:border-color .2s;line-height:1.4}
+textarea::placeholder{color:var(--muted)}
+textarea:focus{border-color:var(--accent)}
+.send-btn{width:42px;height:42px;border-radius:12px;flex-shrink:0;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+.send-btn:active{transform:scale(.88)}
+.send-btn svg{width:16px;height:16px;fill:white}
+.err{font-size:10px;color:var(--red);text-align:center;min-height:14px;letter-spacing:.05em}
+
+/* ── КАРТЫ ── */
+.map-wrap{flex:1;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+.map-top{flex-shrink:0;background:var(--surface);border-bottom:1px solid var(--border)}
+.map-search{display:flex;gap:8px;padding:10px 12px}
+.map-search input{flex:1;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--text);font-size:13px;outline:none;font-family:'JetBrains Mono',monospace}
+.map-search input:focus{border-color:var(--accent)}
+.map-search button{padding:8px 16px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:10px;color:white;font-size:14px;cursor:pointer}
+.cats{display:flex;gap:6px;padding:6px 12px 10px;overflow-x:auto}
+.cats::-webkit-scrollbar{display:none}
+.cat{white-space:nowrap;padding:5px 12px;background:var(--card);border:1px solid var(--border);border-radius:16px;color:var(--text);font-size:11px;cursor:pointer;transition:all .15s;flex-shrink:0}
+.cat:active{background:var(--accent);border-color:var(--accent)}
+#map-frame{flex:1;border:none;min-height:0}
+.map-res{max-height:260px;overflow-y:auto;background:var(--bg);border-top:1px solid var(--border);flex-shrink:0}
+/* Яндекс-стиль карточки */
+.card{display:flex;gap:12px;padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s;align-items:flex-start}
+.card:last-child{border:none}
+.card:active{background:var(--surface)}
+.card-icon{width:42px;height:42px;border-radius:12px;background:var(--surface);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0}
+.card-body{flex:1;min-width:0}
+.card-name{color:var(--text);font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-addr{color:var(--muted);font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-meta{display:flex;gap:8px;margin-top:6px;flex-wrap:wrap}
+.meta-chip{padding:3px 8px;border-radius:8px;font-size:10px;background:var(--surface);border:1px solid var(--border);color:var(--text);white-space:nowrap}
+.meta-chip.car{border-color:var(--accent);color:var(--accent)}
+.meta-chip.walk{border-color:var(--muted)}
+.card-btns{display:flex;gap:6px;margin-top:8px}
+.cbtn{padding:6px 14px;border-radius:20px;font-size:11px;font-family:'Unbounded',sans-serif;text-decoration:none;cursor:pointer;transition:all .15s;letter-spacing:.05em;border:none;display:inline-block}
+.cbtn-route{background:linear-gradient(135deg,var(--accent),var(--accent2));color:white}
+.cbtn-yandex{background:var(--surface);border:1px solid var(--border);color:var(--text)}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-l">
+    <div class="logo">AI</div>
+    <div class="title">Агент</div>
+    <div class="dot"></div>
+  </div>
+  <div class="hdr-r">
+    <div class="badge" id="badge">XI ✓</div>
+    <div class="sw-wrap" onclick="toggleTTS()">
+      <span class="sw-lbl">ГОЛОС</span>
+      <div class="sw" id="sw"></div>
+    </div>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" id="tab-a" onclick="switchTab('a')">🎙 АГЕНТ</button>
+  <button class="tab"        id="tab-m" onclick="switchTab('m')">🗺 КАРТЫ</button>
+</div>
+
+<!-- АГЕНТ -->
+<div class="page active" id="page-a">
+  <div class="chat" id="chat"></div>
+  <div class="controls">
+    <div class="wave" id="wave">
+      <div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div>
+      <div class="wb"></div><div class="wb"></div><div class="wb"></div><div class="wb"></div>
+    </div>
+    <div class="orb-wrap">
+      <div class="ring"></div><div class="ring"></div>
+      <button class="orb" id="orb" onclick="handleOrb()">
+        <svg viewBox="0 0 24 24"><path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-2 4v6a2 2 0 1 0 4 0V5a2 2 0 1 0-4 0zm-3 6a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.92V20h3v2H8v-2h3v-2.08A7 7 0 0 1 5 11h2z"/></svg>
+      </button>
+    </div>
+    <div class="hint" id="hint">нажми чтобы говорить</div>
+    <button class="cont-btn" id="cbtn" onclick="toggleCont()">🔄 Непрерывный</button>
+    <div class="inp-row">
+      <textarea id="txt" placeholder="или напиши..." rows="1"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendText()}"
+        oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>
+      <button class="send-btn" onclick="sendText()">
+        <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+      </button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+</div>
+
+<!-- КАРТЫ -->
+<div class="page" id="page-m">
+  <div class="map-wrap">
+    <div class="map-top">
+      <div class="map-search">
+        <input id="mq" placeholder="Plov Centre, кафе, музей..." type="text"
+          onkeydown="if(event.key==='Enter')doSearch()">
+        <button onclick="doSearch()">🔍</button>
+      </div>
+      <div class="cats">
+        <button class="cat" onclick="byCat('restaurant|cafe|fast_food','🍽 Еда')">🍽 Еда</button>
+        <button class="cat" onclick="byCat('cafe','☕ Кофе')">☕ Кофе</button>
+        <button class="cat" onclick="byCat('museum','🏛 Музеи')">🏛 Музеи</button>
+        <button class="cat" onclick="byCat('pharmacy','💊 Аптека')">💊 Аптека</button>
+        <button class="cat" onclick="byCat('bank|atm','🏦 Банк')">🏦 Банк</button>
+        <button class="cat" onclick="byCat('supermarket|convenience','🛒 Магазин')">🛒 Магазин</button>
+        <button class="cat" onclick="byCat('fuel','⛽ АЗС')">⛽ АЗС</button>
+        <button class="cat" onclick="byCat('hotel|hostel','🏨 Отель')">🏨 Отель</button>
+      </div>
+    </div>
+    <iframe id="map-frame" src="about:blank"></iframe>
+    <div class="map-res" id="mres"></div>
+  </div>
+</div>
+
+<script>
+// ── КЛЮЧИ ──
+const GROQ = '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';
+const XI   = 'sk_4f36ded5d3261c33de95f257934a1246f2e956d699767a13';
+const XIV  = 'ErXwobaYiN019PkySvjV'; // Antoni
+
+// ── TELEGRAM ──
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); try{tg.setBackgroundColor('#080810')}catch(e){} try{tg.setHeaderColor('#0f0f1a')}catch(e){} }
+
+// ── СОСТОЯНИЕ ──
+let rec=false, proc=false, mr=null, chunks=[], ttsOn=true, audio=null, cont=false, hist=[];
+
+// ── ТАБЫ ──
+function switchTab(t) {
+  ['a','m'].forEach(n=>{
+    document.getElementById('tab-'+n).classList.toggle('active',n===t);
+    document.getElementById('page-'+n).classList.toggle('active',n===t);
+  });
+  if(t==='m') initMap();
+}
+
+// ── TTS TOGGLE ──
+function toggleTTS() {
+  ttsOn=!ttsOn;
+  document.getElementById('sw').className='sw'+(ttsOn?'':' off');
+  if(!ttsOn&&audio){try{audio.pause();audio=null}catch(e){}}
+}
+
+// ── ORB ──
+function handleOrb(){ if(!proc) rec?stopRec():startRec(); }
+const orb=()=>document.getElementById('orb');
+function setOrb(s){ orb().className='orb'+(s?' '+s:''); }
+function hint(t){ document.getElementById('hint').textContent=t; }
+function wave(on){ document.getElementById('wave').classList.toggle('show',on); }
+
+function resetOrb(){
+  proc=false; setOrb(''); wave(false);
+  hint(cont?'слушаю...':'нажми чтобы говорить');
+  if(cont&&!rec&&!proc) setTimeout(()=>{if(cont&&!rec&&!proc)startRec();},900);
+}
+
+// ── ЗАПИСЬ ──
+async function startRec(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({audio:true});
+    const opts=MediaRecorder.isTypeSupported('audio/webm;codecs=opus')?{mimeType:'audio/webm;codecs=opus'}:{};
+    mr=new MediaRecorder(stream,opts); chunks=[];
+    mr.ondataavailable=e=>{if(e.data.size>0)chunks.push(e.data)};
+    mr.onstop=async()=>{
+      stream.getTracks().forEach(t=>t.stop());
+      await processVoice(new Blob(chunks,{type:mr.mimeType||'audio/webm'}));
+    };
+    mr.start(100); rec=true;
+    setOrb('rec'); wave(true); hint('🔴 говори... нажми стоп');
+  }catch(e){ err('нет доступа к микрофону'); resetOrb(); }
+}
+
+function stopRec(){
+  if(mr&&rec){ rec=false; proc=true; mr.stop(); setOrb('proc'); wave(false); hint('⚙️ распознаю...'); }
+}
+
+async function processVoice(blob){
+  const txt=await stt(blob);
+  proc=false;
+  if(!txt||txt.trim().length<2){ err('не распознал — говори громче'); resetOrb(); return; }
+  addMsg('user','🎤 '+txt);
+  await aiReply(txt);
+}
+
+// ── STT ──
+async function stt(blob){
+  if(!GROQ){err('нет ключа');return null;}
+  try{
+    const fd=new FormData();
+    fd.append('file',blob,blob.type.includes('webm')?'a.webm':blob.type.includes('mp4')?'a.mp4':'a.wav');
+    fd.append('model','whisper-large-v3');
+    fd.append('language','ru');
+    fd.append('response_format','json');
+    const r=await fetch('https://api.groq.com/openai/v1/audio/transcriptions',{
+      method:'POST',headers:{'Authorization':'Bearer '+GROQ},body:fd
+    });
+    if(!r.ok){err('STT ошибка '+r.status);return null;}
+    return (await r.json()).text?.trim()||null;
+  }catch(e){err('нет сети');return null;}
+}
+
+// ── AI ──
+async function aiReply(text){
+  setOrb('proc'); hint('⚙️ думаю...'); showTyping();
+  hist.push({role:'user',content:text});
+  if(hist.length>20) hist=hist.slice(-20);
+  let reply=null;
+  const sys='Ты персональный AI-агент. Обращайся: господин. Отвечай кратко — 2-3 предложения, ответ озвучивается голосом. Язык: русский.';
+  for(const m of['llama-3.3-70b-versatile','llama-3.1-8b-instant','gemma2-9b-it']){
+    try{
+      const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+        method:'POST',
+        headers:{'Authorization':'Bearer '+GROQ,'Content-Type':'application/json'},
+        body:JSON.stringify({model:m,messages:[{role:'system',content:sys},...hist.slice(-12)],max_tokens:400,temperature:.7})
+      });
+      if(r.ok){reply=(await r.json())?.choices?.[0]?.message?.content?.trim()||null;if(reply)break;}
+    }catch(e){}
+  }
+  hideTyping();
+  if(reply){
+    hist.push({role:'assistant',content:reply});
+    const el=addMsg('bot',reply);
+    if(ttsOn){try{await speak(reply,el)}catch(e){}}
+    else resetOrb();
+  }else{err('AI не ответил');resetOrb();}
+}
+
+// ── TTS ──
+async function speak(text,el){
+  try{if(audio){audio.pause();audio=null}}catch(e){}
+  try{speechSynthesis?.cancel()}catch(e){}
+  setOrb('speak'); hint('🔊 говорю...');
+  if(el) el.classList.add('speaking');
+  const done=()=>{if(el)el.classList.remove('speaking');};
+
+  if(XI){
+    try{
+      const r=await fetch('https://api.elevenlabs.io/v1/text-to-speech/'+XIV,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','xi-api-key':XI},
+        body:JSON.stringify({text:text.slice(0,500),model_id:'eleven_multilingual_v2',voice_settings:{stability:.5,similarity_boost:.75}})
+      });
+      if(r.ok){
+        const url=URL.createObjectURL(await r.blob());
+        audio=new Audio(url);
+        await new Promise((res,rej)=>{audio.onended=res;audio.onerror=rej;audio.play().catch(rej)});
+        URL.revokeObjectURL(url);
+        done();resetOrb();return;
+      }
+    }catch(e){console.warn('XI err',e);}
+  }
+  // Fallback Web Speech
+  try{
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='ru-RU';u.rate=1;
+    await new Promise(res=>{u.onend=res;u.onerror=res;speechSynthesis.speak(u)});
+  }catch(e){}
+  done();resetOrb();
+}
+
+// ── TEXT INPUT ──
+async function sendText(){
+  const ta=document.getElementById('txt');
+  const t=ta.value.trim();
+  if(!t||proc)return;
+  ta.value='';ta.style.height='auto';
+  addMsg('user',t);
+  await aiReply(t);
+}
+
+// ── НЕПРЕРЫВНЫЙ ──
+function toggleCont(){
+  cont=!cont;
+  const b=document.getElementById('cbtn');
+  b.classList.toggle('on',cont);
+  b.textContent=cont?'🔴 Стоп':'🔄 Непрерывный';
+  if(cont){hint('слушаю...');if(!rec&&!proc)startRec();}
+  else{hint('нажми чтобы говорить');if(rec)stopRec();}
+}
+
+// ── UI ──
+function addMsg(role,text){
+  const c=document.getElementById('chat');
+  const d=document.createElement('div');
+  d.className='msg '+role;
+  d.innerHTML=role==='bot'?'<div class="msg-lbl">▸ AI AGENT</div>'+esc(text):esc(text);
+  c.appendChild(d);c.scrollTop=c.scrollHeight;return d;
+}
+let te=null;
+function showTyping(){
+  hideTyping();
+  const c=document.getElementById('chat');
+  te=document.createElement('div');te.className='typing';
+  te.innerHTML='<span></span><span></span><span></span>';
+  c.appendChild(te);c.scrollTop=c.scrollHeight;
+}
+function hideTyping(){if(te){te.remove();te=null;}}
+function err(m){const e=document.getElementById('err');e.textContent=m;setTimeout(()=>e.textContent='',4000);}
+function esc(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');}
+
+// ── КАРТЫ ──
+let ulat=null,ulon=null,minit=false;
+
+const CAT_Q={
+  'restaurant|cafe|fast_food':['кафе Ташкент','ресторан Ташкент','столовая Ташкент'],
+  'cafe':['кофейня Ташкент','coffee Tashkent'],
+  'museum':['музей Ташкент','museum Tashkent'],
+  'pharmacy':['аптека Ташкент'],
+  'bank|atm':['банк Ташкент','ATM Tashkent'],
+  'supermarket|convenience':['супермаркет Ташкент','Korzinka','Makro'],
+  'fuel':['АЗС Ташкент','заправка Ташкент'],
+  'hotel|hostel':['отель Ташкент','hotel Tashkent']
+};
+
+function dist(lat,lon){
+  if(!ulat)return null;
+  const a=(lat-ulat)*Math.PI/180,b=(lon-ulon)*Math.PI/180;
+  const c=Math.sin(a/2)**2+Math.cos(ulat*Math.PI/180)*Math.cos(lat*Math.PI/180)*Math.sin(b/2)**2;
+  return Math.round(6371000*2*Math.asin(Math.sqrt(c)));
+}
+function fmtDist(m){return m===null?'':(m<1000?m+'м':(m/1000).toFixed(1)+'км');}
+function fmtCar(m){if(!m)return'';const t=Math.round(m/500);return(t<1?1:t)+' мин';}
+function fmtWalk(m){if(!m)return'';const t=Math.round(m/83);return t>59?(Math.floor(t/60)+'ч '+(t%60)+'мин'):t+' мин';}
+
+function initMap(){
+  if(minit)return;minit=true;
+  const f=document.getElementById('map-frame');
+  f.src='https://www.openstreetmap.org/export/embed.html?bbox=69.15,41.26,69.35,41.36&layer=mapnik';
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(p=>{
+      ulat=p.coords.latitude;ulon=p.coords.longitude;
+      const d=.025;
+      f.src=`https://www.openstreetmap.org/export/embed.html?bbox=${ulon-d},${ulat-d},${ulon+d},${ulat+d}&layer=mapnik&marker=${ulat},${ulon}`;
+    },()=>{},{timeout:6000});
+  }
+}
+
+function zoomMap(lat,lon){
+  const d=.006;
+  document.getElementById('map-frame').src=
+    `https://www.openstreetmap.org/export/embed.html?bbox=${lon-d},${lat-d},${lon+d},${lat+d}&layer=mapnik&marker=${lat},${lon}`;
+}
+
+async function doSearch(){
+  const q=document.getElementById('mq').value.trim();if(!q)return;
+  loading('🔍 '+q+'...');
+  const loc=ulat?`&viewbox=${ulon-.12},${ulat+.12},${ulon+.12},${ulat-.12}&bounded=0`:'';
+  try{
+    const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&limit=8&accept-language=ru,uz&addressdetails=1${loc}`,
+      {headers:{'User-Agent':'AIAgentBot/1.0','Accept-Language':'ru'}});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    renderCards(await r.json());
+  }catch(e){mstat('❌ '+e.message);}
+}
+
+async function byCat(amenity,label){
+  loading('🔍 '+label+'...');
+  const queries=CAT_Q[amenity]||[label+' Ташкент'];
+  let results=[];
+  
+  for(const q of queries){
+    if(results.length>=5)break;
+    try{
+      // Если есть геолокация — ищем рядом, иначе по городу
+      const bbox=ulat?`&viewbox=${ulon-.06},${ulat+.06},${ulon+.06},${ulat-.06}&bounded=1`:'';
+      const r=await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=jsonv2&limit=8&accept-language=ru,uz&addressdetails=1${bbox}`,
+        {headers:{'User-Agent':'AIAgentBot/1.0'}}
+      );
+      if(!r.ok)continue;
+      const d=await r.json();
+      // Фильтруем дубликаты по имени
+      for(const p of d){
+        const nm=p.name||p.display_name.split(',')[0];
+        if(!results.find(x=>(x.name||x.display_name.split(',')[0])===nm))
+          results.push(p);
+      }
+    }catch(e){}
+  }
+
+  // Если bounded ничего не дал — ищем без ограничений
+  if(!results.length&&ulat){
+    try{
+      const r=await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(queries[0])}&format=jsonv2&limit=8&accept-language=ru,uz&addressdetails=1`,
+        {headers:{'User-Agent':'AIAgentBot/1.0'}}
+      );
+      if(r.ok) results=await r.json();
+    }catch(e){}
+  }
+
+  if(!results.length){mstat('😔 Ничего не найдено — попробуй поиск по названию');return;}
+  
+  // Сортируем по расстоянию если есть геолокация
+  if(ulat) results.sort((a,b)=>dist(+a.lat,+a.lon)-dist(+b.lat,+b.lon));
+  renderCards(results.slice(0,8));
+}
+
+function renderCards(data){
+  if(!data||!data.length){mstat('😔 Ничего не найдено');return;}
+  
+  const icons={restaurant:'🍽',cafe:'☕',fast_food:'🍔',bar:'🍺',
+    museum:'🏛',gallery:'🖼',theatre:'🎭',library:'📚',
+    pharmacy:'💊',hospital:'🏥',doctors:'🏥',
+    bank:'🏦',atm:'💳',
+    supermarket:'🛒',convenience:'🛍',mall:'🏬',
+    fuel:'⛽',hotel:'🏨',hostel:'🛏',
+    park:'🌳',school:'🏫',default:'📍'};
+
+  document.getElementById('mres').innerHTML=data.map(p=>{
+    const lat=+p.lat,lon=+p.lon;
+    const nm=p.name||p.display_name.split(',')[0];
+    const t=(p.type||p.class||'').toLowerCase();
+    const icon=icons[t]||icons.default;
+    const addr=(p.address?.road||p.address?.suburb||p.address?.city_district||
+      p.display_name.split(',').slice(1,3).join(', '))||'';
+    const d=dist(lat,lon);
+    // Ссылка на Яндекс маршрут от моей точки
+    const ya=ulat
+      ?`https://yandex.ru/maps/?rtext=${ulat},${ulon}~${lat},${lon}&rtt=auto`
+      :`https://yandex.ru/maps/?ll=${lon},${lat}&z=17&pt=${lon},${lat}`;
+    // Ссылка на OSM directions (как запасной)
+    const osm=ulat
+      ?`https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=${ulat},${ulon};${lat},${lon}`
+      :`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}`;
+
+    return `<div class="card" onclick="zoomMap(${lat},${lon})">
+      <div class="card-icon">${icon}</div>
+      <div class="card-body">
+        <div class="card-name">${esc(nm)}</div>
+        ${addr?`<div class="card-addr">📍 ${esc(addr.slice(0,55))}</div>`:''}
+        ${d!==null?`<div class="card-meta">
+          <span class="meta-chip">${fmtDist(d)}</span>
+          <span class="meta-chip car">🚗 ${fmtCar(d)}</span>
+          <span class="meta-chip walk">🚶 ${fmtWalk(d)}</span>
+        </div>`:''}
+        <div class="card-btns">
+          <a class="cbtn cbtn-route" href="${ya}" target="_blank">🗺 Яндекс</a>
+          <a class="cbtn cbtn-yandex" href="${osm}" target="_blank">🔗 OSM</a>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  
+  if(data[0])zoomMap(+data[0].lat,+data[0].lon);
+}
+
+function loading(t){
+  document.getElementById('mres').innerHTML=`<div style="padding:20px;text-align:center;">
+    <div style="width:28px;height:28px;border:2.5px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 10px;"></div>
+    <div style="color:var(--muted);font-size:11px;font-family:'Unbounded',sans-serif;">${esc(t)}</div>
+  </div>`;
+}
+function mstat(m){
+  document.getElementById('mres').innerHTML=`<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px;">${esc(m)}</div>`;
+}
+
+// ── ПРИВЕТСТВИЕ ──
+setTimeout(async()=>{
+  const m='Господин, готов к работе. Нажмите орб чтобы говорить или напишите текстом.';
+  const el=addMsg('bot',m);
+  if(ttsOn){try{await speak(m,el)}catch(e){}}
+},700);
+</script>
+</body>
+</html>
