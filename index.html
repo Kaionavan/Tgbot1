@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AI Агент</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;600&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #080810;
+  --surface: #0f0f1a;
+  --card: #141424;
+  --border: #1f1f35;
+  --accent: #6c5ce7;
+  --accent2: #a855f7;
+  --green: #00d4aa;
+  --red: #ff4757;
+  --text: #e8e8f5;
+  --muted: #4a4a6a;
+}
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { height:100%; overflow:hidden; }
+body {
+  font-family: 'JetBrains Mono', monospace;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Фоновая сетка */
+body::before {
+  content:'';
+  position:fixed; inset:0;
+  background:
+    radial-gradient(ellipse 60% 40% at 20% 0%, rgba(108,92,231,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 30% at 80% 100%, rgba(168,85,247,0.06) 0%, transparent 60%);
+  pointer-events:none; z-index:0;
+}
+
+/* HEADER */
+.header {
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 14px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: relative; z-index: 10; flex-shrink: 0;
+}
+.header-left { display:flex; align-items:center; gap:10px; }
+.logo {
+  width:34px; height:34px; border-radius:10px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display:flex; align-items:center; justify-content:center;
+  font-family:'Unbounded',sans-serif; font-size:12px; font-weight:600; color:white;
+}
+.title { font-family:'Unbounded',sans-serif; font-size:13px; font-weight:400; color:var(--text); }
+.status-dot {
+  width:7px; height:7px; border-radius:50%; background:var(--green);
+  box-shadow:0 0 8px var(--green); animation: pulse-dot 2s ease-in-out infinite;
+}
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.header-right { display:flex; align-items:center; gap:10px; }
+.badge {
+  font-size:9px; letter-spacing:.15em; padding:4px 10px;
+  border:1px solid var(--accent); color:var(--accent); border-radius:20px;
+  font-family:'Unbounded',sans-serif;
+}
+.tts-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; }
+.tts-label { font-size:9px; color:var(--muted); letter-spacing:.1em; }
+.sw { width:32px; height:18px; border-radius:9px; background:var(--accent); position:relative; transition:background .2s; }
+.sw.off { background:var(--border); }
+.sw::after {
+  content:''; position:absolute; width:14px; height:14px; border-radius:50%;
+  background:white; top:2px; left:16px; transition:left .2s;
+}
+.sw.off::after { left:2px; }
+
+/* CHAT */
+.chat {
+  flex:1; overflow-y:auto; padding:16px 16px 8px;
+  display:flex; flex-direction:column; gap:12px;
+  position:relative; z-index:1;
+  scrollbar-width:none;
+}
+.chat::-webkit-scrollbar { display:none; }
+
+.msg { max-width:85%; animation: msg-in .2s ease; word-break:break-word; }
+@keyframes msg-in { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+.msg.user {
+  align-self:flex-end;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  padding:10px 14px; border-radius:16px 16px 4px 16px;
+  font-size:14px; line-height:1.5; color:white;
+}
+.msg.bot {
+  align-self:flex-start;
+  background: var(--card);
+  border:1px solid var(--border);
+  padding:12px 14px; border-radius:16px 16px 16px 4px;
+  font-size:14px; line-height:1.6;
+}
+.msg.bot.speaking {
+  border-color:var(--green);
+  box-shadow:0 0 16px rgba(0,212,170,0.15);
+}
+.msg-label {
+  font-size:8px; letter-spacing:.2em; color:var(--accent);
+  margin-bottom:6px; font-family:'Unbounded',sans-serif;
+}
+
+/* Typing indicator */
+.typing {
+  align-self:flex-start;
+  background:var(--card); border:1px solid var(--border);
+  padding:14px 18px; border-radius:16px 16px 16px 4px;
+  display:flex; gap:5px; align-items:center;
+}
+.typing span {
+  width:5px; height:5px; border-radius:50%; background:var(--accent);
+  animation: bounce .9s ease-in-out infinite;
+}
+.typing span:nth-child(2){animation-delay:.15s;background:var(--accent2)}
+.typing span:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.3}30%{transform:translateY(-5px);opacity:1}}
+
+/* CONTROLS */
+.controls {
+  padding:12px 18px 24px;
+  background:var(--surface); border-top:1px solid var(--border);
+  display:flex; flex-direction:column; align-items:center; gap:14px;
+  position:relative; z-index:10; flex-shrink:0;
+}
+
+/* Waveform */
+.wave { display:flex; align-items:center; gap:3px; height:28px; opacity:0; transition:opacity .3s; }
+.wave.show { opacity:1; }
+.wb {
+  width:3px; border-radius:2px; min-height:3px;
+  background:linear-gradient(to top, var(--accent), var(--accent2));
+  animation:wv .5s ease-in-out infinite;
+}
+.wb:nth-child(1){animation-delay:0s}.wb:nth-child(2){animation-delay:.08s}
+.wb:nth-child(3){animation-delay:.16s}.wb:nth-child(4){animation-delay:.04s}
+.wb:nth-child(5){animation-delay:.12s}.wb:nth-child(6){animation-delay:.2s}
+.wb:nth-child(7){animation-delay:.08s}.wb:nth-child(8){animation-delay:.16s}
+@keyframes wv{0%,100%{height:3px}50%{height:22px}}
+
+/* ORB */
+.orb-wrap { position:relative; width:76px; height:76px; display:flex; align-items:center; justify-content:center; }
+.ring {
+  position:absolute; border-radius:50%; border:1px solid transparent;
+}
+.ring:nth-child(1) { width:76px; height:76px; border-top-color:var(--accent); animation:spin 4s linear infinite; }
+.ring:nth-child(2) { width:60px; height:60px; border-right-color:var(--accent2); animation:spin 2.5s linear infinite reverse; }
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.orb {
+  width:52px; height:52px; border-radius:50%;
+  background:linear-gradient(135deg, var(--accent), var(--accent2));
+  display:flex; align-items:center; justify-content:center;
+  cursor:pointer; border:none; outline:none;
+  box-shadow:0 0 24px rgba(108,92,231,.4);
+  transition:transform .15s, box-shadow .15s;
+  position:relative; z-index:2;
+}
+.orb:active { transform:scale(.9); }
+.orb.recording { background:linear-gradient(135deg,var(--red),#ff6b81); animation:orb-pulse 1s ease-in-out infinite; }
+.orb.processing { background:linear-gradient(135deg,var(--muted),var(--accent)); }
+.orb.speaking { background:linear-gradient(135deg,var(--green),#00b894); box-shadow:0 0 30px rgba(0,212,170,.4); }
+@keyframes orb-pulse{0%,100%{box-shadow:0 0 20px rgba(255,71,87,.3)}50%{box-shadow:0 0 40px rgba(255,71,87,.6)}}
+.orb svg { width:20px; height:20px; fill:white; pointer-events:none; }
+
+.hint { font-size:9px; color:var(--muted); letter-spacing:.15em; text-transform:uppercase; }
+
+/* Input row */
+.input-row { display:flex; gap:8px; width:100%; align-items:flex-end; }
+textarea {
+  flex:1; background:var(--bg); border:1px solid var(--border); border-radius:12px;
+  padding:10px 14px; color:var(--text); font-family:'JetBrains Mono',monospace;
+  font-size:12px; resize:none; outline:none; max-height:80px; min-height:40px;
+  line-height:1.5; transition:border-color .2s;
+}
+textarea::placeholder { color:var(--muted); }
+textarea:focus { border-color:var(--accent); }
+.send {
+  width:40px; height:40px; border-radius:10px; flex-shrink:0;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  border:none; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  transition:transform .15s;
+}
+.send:active { transform:scale(.88); }
+.send svg { width:16px; height:16px; fill:white; }
+
+.err { font-size:10px; color:var(--red); text-align:center; min-height:14px; letter-spacing:.05em; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo">AI</div>
+    <div class="title">Агент</div>
+    <div class="status-dot"></div>
+  </div>
+  <div class="header-right">
+    <div class="badge" id="badge">GROQ</div>
+    <div class="tts-toggle" onclick="toggleTTS()">
+      <span class="tts-label">ГОЛОС</span>
+      <div class="sw" id="sw"></div>
+    </div>
+  </div>
+</div>
+
+<div class="chat" id="chat"></div>
+
+<div class="controls">
+  <div class="wave" id="wave">
+    <div class="wb"></div><div class="wb"></div><div class="wb"></div>
+    <div class="wb"></div><div class="wb"></div><div class="wb"></div>
+    <div class="wb"></div><div class="wb"></div>
+  </div>
+
+  <div class="orb-wrap">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <button class="orb" id="orb" onclick="handleOrb()">
+      <svg id="orb-icon" viewBox="0 0 24 24">
+        <path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-2 4v6a2 2 0 1 0 4 0V5a2 2 0 1 0-4 0zm-3 6a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.92V20h3v2H8v-2h3v-2.08A7 7 0 0 1 5 11h2z"/>
+      </svg>
+    </button>
+  </div>
+
+  <div class="hint" id="hint">нажми чтобы говорить</div>
+  <button id="cont-btn" onclick="toggleContinuous()" style="
+    margin-top:4px; padding:6px 18px; border-radius:20px;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));
+    border:none; color:white; font-size:10px; cursor:pointer;
+    font-family:'Unbounded',sans-serif; letter-spacing:.1em;
+    transition:all .2s; opacity:.85;
+  ">🔄 Непрерывный</button>
+
+  <div class="input-row">
+    <textarea id="txt" placeholder="или напиши..." rows="1"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendText()}"
+      oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,80)+'px'"></textarea>
+    <button class="send" onclick="sendText()">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    </button>
+  </div>
+  <div class="err" id="err"></div>
+</div>
+
+<script>
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ TELEGRAM
+// ============================================================
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  try { tg.setBackgroundColor('#080810'); } catch(e){}
+  try { tg.setHeaderColor('#0f0f1a'); } catch(e){}
+}
+
+// ============================================================
+// GROQ КЛЮЧ — зашит напрямую
+// ============================================================
+const GROQ_KEY = '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';
+const XI_KEY = 'sk_4f36ded5d3261c33de95f257934a1246f2e956d699767a13';
+// ElevenLabs голос — мужской, интеллигентный, уверенный (Antoni)
+const XI_VOICE = 'ErXwobaYiN019PkySvjV'; // Antoni — мужской, уверенный
+
+// Обновляем badge
+document.getElementById('badge').textContent = XI_KEY ? 'XI ✓' : (GROQ_KEY ? 'GROQ ✓' : 'NO KEY');
+if (!GROQ_KEY) {
+  document.getElementById('badge').style.borderColor = '#ff4757';
+  document.getElementById('badge').style.color = '#ff4757';
+}
+
+// ============================================================
+// СОСТОЯНИЕ
+// ============================================================
+let isRecording = false;
+let isProcessing = false;
+let mediaRecorder = null;
+let audioChunks = [];
+let ttsOn = true;
+let curAudio = null;
+let history = [];
+
+// ============================================================
+// TTS TOGGLE
+// ============================================================
+function toggleTTS() {
+  ttsOn = !ttsOn;
+  const sw = document.getElementById('sw');
+  sw.className = 'sw' + (ttsOn ? '' : ' off');
+  if (!ttsOn) {
+    try { if (curAudio) { curAudio.pause(); curAudio = null; } } catch(e){}
+    try { speechSynthesis?.cancel(); } catch(e){}
+  }
+}
+
+// ============================================================
+// ORB УПРАВЛЕНИЕ
+// ============================================================
+function handleOrb() {
+  if (isProcessing) return;
+  isRecording ? stopRec() : startRec();
+}
+
+async function startRec() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const opts = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? { mimeType: 'audio/webm;codecs=opus' }
+      : {};
+    mediaRecorder = new MediaRecorder(stream, opts);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      await processVoice(blob);
+    };
+    mediaRecorder.start(100);
+    isRecording = true;
+    setOrb('recording');
+    setHint('говори... нажми чтобы остановить');
+    document.getElementById('wave').classList.add('show');
+  } catch(e) {
+    showErr('нет доступа к микрофону');
+  }
+}
+
+function stopRec() {
+  if (mediaRecorder && isRecording) {
+    mediaRecorder.stop();
+    isRecording = false;
+    isProcessing = true;
+    setOrb('processing');
+    setHint('распознаю...');
+    document.getElementById('wave').classList.remove('show');
+  }
+}
+
+async function processVoice(blob) {
+  const text = await stt(blob);
+  if (!text) {
+    showErr('не распознал речь, попробуй ещё раз');
+    resetOrb();
+    return;
+  }
+  addMsg('user', '🎤 ' + text);
+  await aiReply(text);
+}
+
+// ============================================================
+// STT (Speech-to-Text через Groq Whisper)
+// ============================================================
+async function stt(blob) {
+  if (!GROQ_KEY) return null;
+  try {
+    const fd = new FormData();
+    fd.append('file', blob, 'audio.webm');
+    fd.append('model', 'whisper-large-v3');
+    fd.append('language', 'ru');
+    fd.append('response_format', 'json');
+    const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + GROQ_KEY },
+      body: fd
+    });
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.text?.trim() || null;
+  } catch(e) {
+    console.error('STT error:', e);
+    return null;
+  }
+}
+
+// ============================================================
+// AI ОТВЕТ
+// ============================================================
+async function aiReply(text) {
+  setOrb('processing');
+  setHint('думаю...');
+  showTyping();
+
+  history.push({ role: 'user', content: text });
+  if (history.length > 20) history = history.slice(-20);
+
+  let reply = null;
+  try {
+    const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + GROQ_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [
+          {
+            role: 'system',
+            content: 'Ты персональный AI-агент. Обращайся к пользователю: господин. Отвечай кратко и по делу — 2-3 предложения, так как ответ озвучивается голосом. Говори на русском языке.'
+          },
+          ...history.slice(-12)
+        ],
+        max_tokens: 300,
+        temperature: 0.7
+      })
+    });
+    if (r.ok) {
+      const d = await r.json();
+      reply = d?.choices?.[0]?.message?.content?.trim() || null;
+    } else {
+      const err = await r.text();
+      console.error('AI error:', err);
+    }
+  } catch(e) {
+    console.error('AI fetch error:', e);
+    reply = 'Ошибка соединения. Попробуй ещё раз, господин.';
+  }
+
+  hideTyping();
+
+  if (reply) {
+    history.push({ role: 'assistant', content: reply });
+    const el = addMsg('bot', reply);
+    if (ttsOn) {
+      try { await speak(reply, el); } catch(e) { console.error('speak error:', e); }
+    }
+  }
+
+  resetOrb();
+}
+
+// ============================================================
+// TTS (Text-to-Speech)
+// ============================================================
+async function speak(text, el) {
+  // Останавливаем всё предыдущее
+  try { if (curAudio) { curAudio.pause(); curAudio.src = ''; curAudio = null; } } catch(e){}
+  try { speechSynthesis?.cancel(); } catch(e){}
+
+  setOrb('speaking');
+  setHint('говорю...');
+  if (el) el.classList.add('speaking');
+  const done = () => { if (el) el.classList.remove('speaking'); };
+  const dbg = (msg) => {
+    console.log('[TTS]', msg);
+    setHint(msg.slice(0, 40));
+  };
+
+  // ---- Способ 1: ElevenLabs TTS (русский язык, высокое качество) ----
+  dbg('XI_KEY=' + !!XI_KEY + ' XI_VOICE=' + XI_VOICE);
+  if (XI_KEY) {
+    try {
+      dbg('запрос к ElevenLabs...');
+      const r = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + XI_VOICE, {
+        method: 'POST',
+        headers: {
+          'xi-api-key': XI_KEY,
+          'Content-Type': 'application/json',
+          'Accept': 'audio/mpeg'
+        },
+        body: JSON.stringify({
+          text: text.slice(0, 500),
+          model_id: 'eleven_multilingual_v2',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.3,
+            use_speaker_boost: true
+          }
+        })
+      });
+      if (r.ok) {
+        const blob = await r.blob();
+        dbg('EL ok size=' + blob.size);
+        if (blob.size > 500) {
+          const url = URL.createObjectURL(blob);
+          curAudio = new Audio(url);
+          curAudio.volume = 1.0;
+          await new Promise((resolve) => {
+            curAudio.onended = resolve;
+            curAudio.onerror = resolve;
+            const p = curAudio.play();
+            if (p && p.catch) p.catch(resolve);
+            setTimeout(resolve, 60000);
+          });
+          URL.revokeObjectURL(url);
+          done(); return;
+        }
+      } else {
+        const err = await r.text();
+        dbg('EL error ' + r.status + ' ' + err.slice(0,30));
+      }
+    } catch(e) {
+      dbg('EL exception: ' + e.message.slice(0,30));
+    }
+  }
+
+  // ---- Способ 2:  // ---- Способ 2: Браузерный TTS (fallback) ----
+  if (window.speechSynthesis) {
+    try {
+      await new Promise((resolve) => {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text.slice(0, 500));
+        u.lang = 'ru-RU';
+        u.rate = 0.9;
+        u.pitch = 1.0;
+        u.volume = 1.0;
+
+        const doSpeak = () => {
+          const voices = speechSynthesis.getVoices();
+          const ru = voices.find(v => v.lang === 'ru-RU')
+                  || voices.find(v => v.lang.startsWith('ru'))
+                  || voices[0];
+          if (ru) u.voice = ru;
+          u.onend = resolve;
+          u.onerror = resolve;
+          speechSynthesis.speak(u);
+        };
+
+        const voices = speechSynthesis.getVoices();
+        if (voices.length > 0) {
+          doSpeak();
+        } else {
+          speechSynthesis.onvoiceschanged = doSpeak;
+          setTimeout(resolve, 12000);
+        }
+      });
+    } catch(e) {
+      console.warn('Browser TTS error:', e);
+    }
+  }
+
+  done();
+}
+
+// ============================================================
+// ОТПРАВКА ТЕКСТА
+// ============================================================
+async function sendText() {
+  const el = document.getElementById('txt');
+  const text = el.value.trim();
+  if (!text || isProcessing) return;
+  el.value = '';
+  el.style.height = 'auto';
+  isProcessing = true;
+  addMsg('user', text);
+  await aiReply(text);
+}
+
+// ============================================================
+// UI ХЕЛПЕРЫ
+// ============================================================
+const ORB_ICONS = {
+  '': '<path d="M12 1a4 4 0 0 1 4 4v6a4 4 0 0 1-8 0V5a4 4 0 0 1 4-4zm-2 4v6a2 2 0 1 0 4 0V5a2 2 0 1 0-4 0zm-3 6a5 5 0 0 0 10 0h2a7 7 0 0 1-6 6.92V20h3v2H8v-2h3v-2.08A7 7 0 0 1 5 11h2z"/>',
+  recording: '<rect x="7" y="7" width="10" height="10" rx="2"/>',
+  processing: '<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/>',
+  speaking: '<path d="M11 5L6 9H2v6h4l5 4V5zm4.54 0a8 8 0 0 1 0 14M15.54 8.46a4 4 0 0 1 0 7.07"/>'
+};
+
+function setOrb(state) {
+  const orb = document.getElementById('orb');
+  const icon = document.getElementById('orb-icon');
+  orb.className = 'orb' + (state ? ' ' + state : '');
+  icon.innerHTML = ORB_ICONS[state] || ORB_ICONS[''];
+}
+
+function resetOrb() {
+  isProcessing = false;
+  isRecording = false;
+  setOrb('');
+  setHint('нажми чтобы говорить');
+  document.getElementById('wave').classList.remove('show');
+}
+
+function setHint(t) { document.getElementById('hint').textContent = t; }
+
+function showErr(msg) {
+  const el = document.getElementById('err');
+  el.textContent = msg;
+  setTimeout(() => el.textContent = '', 3000);
+}
+
+function addMsg(role, text) {
+  const chat = document.getElementById('chat');
+  const d = document.createElement('div');
+  d.className = 'msg ' + role;
+  if (role === 'bot') {
+    d.innerHTML = '<div class="msg-label">▸ AI AGENT</div>' + esc(text);
+  } else {
+    d.textContent = text;
+  }
+  chat.appendChild(d);
+  chat.scrollTop = chat.scrollHeight;
+  return d;
+}
+
+let typingEl = null;
+function showTyping() {
+  hideTyping();
+  const chat = document.getElementById('chat');
+  typingEl = document.createElement('div');
+  typingEl.className = 'typing';
+  typingEl.innerHTML = '<span></span><span></span><span></span>';
+  chat.appendChild(typingEl);
+  chat.scrollTop = chat.scrollHeight;
+}
+function hideTyping() {
+  if (typingEl) { typingEl.remove(); typingEl = null; }
+}
+
+function esc(t) {
+  return t
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/\n/g,'<br>');
+}
+
+// ============================================================
+// НЕПРЕРЫВНЫЙ ДИАЛОГ
+// ============================================================
+let continuousMode = false;
+
+function toggleContinuous() {
+  continuousMode = !continuousMode;
+  const btn = document.getElementById('cont-btn');
+  if (continuousMode) {
+    btn.textContent = '🔴 Стоп режим';
+    btn.style.background = 'linear-gradient(135deg,#ff4757,#ff6b81)';
+    btn.style.opacity = '1';
+    setHint('непрерывный режим — говори...');
+    if (!isRecording && !isProcessing) startRec();
+  } else {
+    btn.textContent = '🔄 Непрерывный';
+    btn.style.background = 'linear-gradient(135deg,var(--accent),var(--accent2))';
+    btn.style.opacity = '.85';
+    setHint('нажми чтобы говорить');
+  }
+}
+
+// Патчим aiReply для автоперезапуска после ответа
+const _origSpeak = speak;
+const _origResetOrb = resetOrb;
+resetOrb = function() {
+  _origResetOrb();
+  if (continuousMode && !isRecording && !isProcessing) {
+    setTimeout(() => {
+      if (continuousMode) {
+        setHint('слушаю...');
+        startRec();
+      }
+    }, 1200);
+  }
+};
+
+// ============================================================
+// ИНИЦИАЛИЗАЦИЯ ГОЛОСОВ
+// ============================================================
+if (window.speechSynthesis) {
+  speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
+}
+
+// ============================================================
+// ПРИВЕТСТВИЕ
+// ============================================================
+setTimeout(async () => {
+  const msg = 'Господин, я готов. Нажмите орб чтобы говорить, или напишите текстом.';
+  const el = addMsg('bot', msg);
+  if (ttsOn) {
+    try { await speak(msg, el); } catch(e) {}
+  }
+}, 800);
+</script>
+</body>
+</html>
