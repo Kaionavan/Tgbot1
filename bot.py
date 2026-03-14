@@ -87,12 +87,11 @@ def main_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton("👤 Профиль"), KeyboardButton("📊 Статистика"), KeyboardButton("❓ Помощь")],
     ]
     return ReplyKeyboardMarkup(
-        keyboard,
-        resize_keyboard=True,
-        persistent=True,
-        input_field_placeholder="Выбери действие или напиши сообщение..."
+    keyboard,
+    resize_keyboard=True,
+    is_persistent=True,
+    input_field_placeholder="Выбери действие или напиши сообщение..."
     )
-
 # =============================================
 #  DATA MANAGEMENT
 # =============================================
